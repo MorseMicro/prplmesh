@@ -27,6 +27,7 @@ import argparse
 import os
 import sys
 import json
+import re
 from subprocess import Popen, PIPE, run
 
 if not (sys.version_info.major == 3 and sys.version_info.minor >= 5):
@@ -46,7 +47,10 @@ def check_docker_versions():
         print(fmt.format(DOCKER_MAJOR))
         print("You are usng version {}".format(docker_version))
         sys.exit(1)
-    dc_version = os.popen('docker-compose --version').read().split(' ')[2]
+    dc_version = os.popen('docker-compose --version').read()
+    dc_version = re.sub("docker-compose version ", "", dc_version, flags=re.IGNORECASE)
+    dc_version = re.sub("Docker Compose version ", "", dc_version, flags=re.IGNORECASE)
+    dc_version = re.sub("v", "", dc_version, flags=re.IGNORECASE)
     dc_major = int(dc_version.split('.')[0])
     dc_minor = int(dc_version.split('.')[1])
     if dc_major < DC_MAJOR:
@@ -54,7 +58,7 @@ def check_docker_versions():
         print(fmt.format(DC_MAJOR, DC_MINOR))
         print("You are usng version {}".format(dc_version))
         sys.exit(1)
-    if dc_minor < DC_MINOR:
+    if dc_major == DC_MAJOR and dc_minor < DC_MINOR:
         fmt = "This script requires docker-compose {}.{} or higher"
         print(fmt.format(DC_MAJOR, DC_MINOR))
         print("You are usng version {}".format(dc_version))
