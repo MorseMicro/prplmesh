@@ -188,58 +188,86 @@ diffie_hellman::diffie_hellman() : m_evp(nullptr), m_pubkey(nullptr)
     std::unique_ptr<BIGNUM, decltype(&BN_free)> g(BN_bin2bn(dh1536_g, sizeof(dh1536_g), nullptr),
                                                   &BN_free);
 
-    std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> pctx(
-        EVP_PKEY_CTX_new_id(EVP_PKEY_DH, nullptr), &EVP_PKEY_CTX_free);
-    if (!pctx) {
-        MAPF_ERR("Failed to allocate parameter generation EVP_PKEY_CTX");
+    // Create the OSSL_PARAM_BLD
+    std::unique_ptr<OSSL_PARAM_BLD, decltype(&OSSL_PARAM_BLD_free)> paramBuild(
+        OSSL_PARAM_BLD_new(), &OSSL_PARAM_BLD_free);
+    if (!paramBuild.get()) {
+        MAPF_ERR("Failed to create a new OSSL_PARAM_BLD");
         return;
     }
 
-    if (EVP_PKEY_paramgen_init(pctx.get()) != 1) {
-        MAPF_ERR("Failed to initialize parameter generation");
+    // Set the prime and generator
+    if (!OSSL_PARAM_BLD_push_BN(paramBuild.get(), OSSL_PKEY_PARAM_FFC_P, p.get()) ||
+        !OSSL_PARAM_BLD_push_BN(paramBuild.get(), OSSL_PKEY_PARAM_FFC_G, g.get())) {
+        MAPF_ERR("Failed to set prime and generator in OSSL_PARAM_BLD");
         return;
     }
 
-    std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> params(EVP_PKEY_new(), &EVP_PKEY_free);
-    int ret_p = EVP_PKEY_set_bn_param(params.get(), "p", p.get());
-    int ret_g = EVP_PKEY_set_bn_param(params.get(), "g", g.get());
-
-    if (ret_p != 1 || ret_g != 1) {
-        MAPF_ERR("Failed to set custom DH parameters");
+    // Convert to OSSL_PARAM
+    std::unique_ptr<OSSL_PARAM, decltype(&OSSL_PARAM_free)> param(
+        OSSL_PARAM_BLD_to_param(paramBuild.get()), &OSSL_PARAM_free);
+    if (!param.get()) {
+        MAPF_ERR("Failed to convert OSSL_PARAM_BLD to OSSL_PARAM");
         return;
     }
 
-    std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> kctx(
-        EVP_PKEY_CTX_new(params.get(), nullptr), &EVP_PKEY_CTX_free);
-    if (!kctx) {
-        MAPF_ERR("Failed to allocate key generation EVP_PKEY_CTX");
+    // Create the key context
+    std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> keyCtx(
+        EVP_PKEY_CTX_new_from_name(nullptr, "DHX", nullptr), &EVP_PKEY_CTX_free);
+    if (!keyCtx.get()) {
+        MAPF_ERR("Failed to create EVP_PKEY context");
         return;
     }
 
-    if (EVP_PKEY_keygen_init(kctx.get()) != 1) {
+    // Initialize the context.
+    if (EVP_PKEY_fromdata_init(keyCtx.get()) <= 0) {
+        MAPF_ERR("Failed to initialize EVP_PKEY context");
+        return;
+    }
+    // Create the domain parameter key.
+    EVP_PKEY *domainParamKey = nullptr;
+    if (EVP_PKEY_fromdata(keyCtx.get(), &domainParamKey, EVP_PKEY_KEY_PARAMETERS, param.get()) <=
+        0) {
+        MAPF_ERR("Failed to create EVP_PKEY");
+        return;
+    }
+
+    // Create keypair
+    std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> keyGenerationCtx(
+        EVP_PKEY_CTX_new_from_pkey(nullptr, domainParamKey, nullptr), &EVP_PKEY_CTX_free);
+    if (!keyGenerationCtx.get()) {
+        MAPF_ERR("Failed to create keyGeneration context");
+        return;
+    }
+    if (EVP_PKEY_keygen_init(keyGenerationCtx.get()) <= 0) {
         MAPF_ERR("Failed to initialize key generation");
         return;
     }
-
-    if (EVP_PKEY_keygen(kctx.get(), &m_evp) != 1) {
+    if (EVP_PKEY_generate(keyGenerationCtx.get(), &m_evp) <= 0) {
         MAPF_ERR("Failed to generate DH key pair");
         return;
     }
 
     BIGNUM *pub_key = nullptr;
-    if (EVP_PKEY_get_bn_param(m_evp, "pub", &pub_key) != 1) {
+    if (EVP_PKEY_get_bn_param(m_evp, OSSL_PKEY_PARAM_PUB_KEY, &pub_key) != 1) {
         MAPF_ERR("Failed to get the public key");
         return;
     }
 
     m_pubkey_length = BN_num_bytes(pub_key);
     m_pubkey        = new uint8_t[m_pubkey_length];
-    BN_bn2bin(pub_key, m_pubkey);
+    if (0 == BN_bn2bin(pub_key, m_pubkey)) {
+        MAPF_ERR("Failed to convert public key");
+        return;
+    }
     BN_free(pub_key);
 
     if (RAND_bytes(m_nonce, sizeof(m_nonce)) != 1) {
         MAPF_ERR("Failed to generate nonce");
+        return;
     }
+
+    MAPF_INFO("EVP keypair generated");
 }
 
 diffie_hellman::~diffie_hellman()
@@ -250,43 +278,113 @@ diffie_hellman::~diffie_hellman()
     }
 }
 
+bool diffie_hellman::create_peer_EVPKey(
+    const uint8_t *remote_pubkey, size_t remote_pubkey_length,
+    std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> *peerPubKey) const
+{
+
+    std::unique_ptr<BIGNUM, decltype(&BN_free)> p(BN_bin2bn(dh1536_p, sizeof(dh1536_p), nullptr),
+                                                  &BN_free);
+    std::unique_ptr<BIGNUM, decltype(&BN_free)> g(BN_bin2bn(dh1536_g, sizeof(dh1536_g), nullptr),
+                                                  &BN_free);
+
+    std::unique_ptr<BIGNUM, decltype(&BN_clear_free)> bigNumPeerPublicKey(
+        BN_bin2bn(remote_pubkey, remote_pubkey_length, nullptr), &BN_clear_free);
+    if (!bigNumPeerPublicKey.get()) {
+        MAPF_ERR("Failed to convert remote_pubkey to bignum");
+        return false;
+    }
+
+    // Create the OSSL_PARAM_BLD.
+    std::unique_ptr<OSSL_PARAM_BLD, decltype(&OSSL_PARAM_BLD_free)> paramBuild{
+        OSSL_PARAM_BLD_new(), &OSSL_PARAM_BLD_free};
+    if (!paramBuild.get()) {
+        MAPF_ERR("Failed to allocate OSSL_PARAM builder");
+        return false;
+    }
+
+    // Set public key, prime and generator
+    if (!OSSL_PARAM_BLD_push_BN(paramBuild.get(), OSSL_PKEY_PARAM_PUB_KEY,
+                                bigNumPeerPublicKey.get())) {
+        MAPF_ERR("Failed to set public key to OSSL_PARAM builder");
+        return false;
+    }
+    if (!OSSL_PARAM_BLD_push_BN(paramBuild.get(), OSSL_PKEY_PARAM_FFC_P, p.get()) ||
+        !OSSL_PARAM_BLD_push_BN(paramBuild.get(), OSSL_PKEY_PARAM_FFC_G, g.get())) {
+        MAPF_ERR("Failed to set p or g value in OSSL_PARAM builder");
+        return false;
+    }
+
+    std::unique_ptr<OSSL_PARAM, decltype(&OSSL_PARAM_free)> param{
+        OSSL_PARAM_BLD_to_param(paramBuild.get()), &OSSL_PARAM_free};
+    if (!param.get()) {
+        MAPF_ERR("Failed to create public key, OSSL_PARAM generation failed");
+        return false;
+    }
+
+    std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> peerPublicKeyCtx{
+        EVP_PKEY_CTX_new_from_name(nullptr, "DHX", nullptr), &EVP_PKEY_CTX_free};
+    if (!peerPublicKeyCtx.get()) {
+        MAPF_ERR("Failed to create public key, EVP_PKEY context generation failed");
+        return false;
+    }
+
+    if (EVP_PKEY_fromdata_init(peerPublicKeyCtx.get()) <= 0) {
+        MAPF_ERR("Failed to create public key, EVP_PKEY_fromdata_init failed");
+        return false;
+    }
+
+    EVP_PKEY *tmp = nullptr;
+    if (EVP_PKEY_fromdata(peerPublicKeyCtx.get(), &tmp, EVP_PKEY_PUBLIC_KEY, param.get()) <= 0) {
+        MAPF_ERR("Failed to create public key, EVP_PKEY_fromdata failed");
+        return false;
+    }
+
+    peerPubKey->reset(tmp);
+
+    return true;
+}
+
 bool diffie_hellman::compute_key(uint8_t *key, size_t &key_length, const uint8_t *remote_pubkey,
                                  size_t remote_pubkey_length) const
 {
-    if (!m_pubkey) {
-        return false;
-    }
 
     MAPF_DBG("Computing DH shared key");
 
-    std::unique_ptr<BIGNUM, decltype(&BN_clear_free)> pub_key(
-        BN_bin2bn(remote_pubkey, remote_pubkey_length, nullptr), &BN_clear_free);
-    if (!pub_key) {
-        MAPF_ERR("Failed to set DH remote_pub_key");
+    // Create remote EVP key from remote_pubkey
+    std::unique_ptr<EVP_PKEY, decltype(&EVP_PKEY_free)> remoteEVPKey(EVP_PKEY_new(),
+                                                                     &EVP_PKEY_free);
+    if (!create_peer_EVPKey(remote_pubkey, remote_pubkey_length, &remoteEVPKey)) {
+        MAPF_ERR("Failed to create public EVP key");
         return false;
     }
 
-    // Compute the shared secret and save it in the output buffer
-    if (key_length < (size_t)EVP_PKEY_size(m_evp)) {
-        MAPF_ERR("Output buffer for DH shared key too small: " << key_length << " < "
-                                                               << EVP_PKEY_size(m_evp));
-        return false;
-    }
-
-    std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> ctx(
+    std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> derivationCtx(
         EVP_PKEY_CTX_new(m_evp, nullptr), &EVP_PKEY_CTX_free);
-    if (!ctx) {
-        MAPF_ERR("EVP_PKEY_CTX_new failed");
+    if (!derivationCtx) {
+        MAPF_ERR("Failed to allocate key derivation context");
         return false;
     }
 
-    int ret = EVP_PKEY_derive(ctx.get(), key, &key_length);
-    if (ret < 0) {
-        MAPF_ERR("Failed to compute DH shared key");
+    if (EVP_PKEY_derive_init(derivationCtx.get()) <= 0) {
+        MAPF_ERR("Failed to initialize key derivation context");
         return false;
     }
 
-    key_length = static_cast<size_t>(ret);
+    if (EVP_PKEY_derive_set_peer(derivationCtx.get(), remoteEVPKey.get()) <= 0) {
+        MAPF_ERR("Failed to set public key in EVP context");
+        return false;
+    }
+
+    if (EVP_PKEY_derive(derivationCtx.get(), key, &key_length) <= 0) {
+        MAPF_ERR("Failed to derrive shared key");
+        return false;
+    }
+    if (key_length == 0) {
+        MAPF_ERR("Failed to compute DH shared key, keylength is zero");
+        return false;
+    }
+
     return true;
 }
 #endif
