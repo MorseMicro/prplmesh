@@ -58,7 +58,9 @@ static void fill_conn_map_node(
                     tlvf::mac_to_string(node->data.gw_ire.radio[i].radio_identifier);
                 r->radio_mac = tlvf::mac_to_string(node->data.gw_ire.radio[i].radio_mac);
                 r->ifname.assign(node->data.gw_ire.radio[i].iface_name);
-
+#if defined(MORSE_MICRO)
+                r->s1g_freq = node->data.gw_ire.radio[i].s1g_freq;
+#endif
                 // VAP
                 int vap_length = sizeof(node->data.gw_ire.radio[i].vap) /
                                  sizeof(node->data.gw_ire.radio[i].vap[0]);
@@ -194,9 +196,13 @@ static void bml_utils_dump_conn_map(
                    << utils::convert_channel_ext_above_to_string(
                           radio->channel_ext_above_secondary, (beerocks::eWiFiBandwidth)radio->bw)
                    << ", freq: "
+#if defined(MORSE_MICRO)
+                   << std::fixed << radio->s1g_freq << " MHz"
+#else
                    << std::to_string(son::wireless_utils::channel_to_freq(
-                          radio->channel, static_cast<beerocks::eFreqType>(radio->freq_type)))
-                   << "MHz" << std::endl;
+                          radio->channel, static_cast<beerocks::eFreqType>(radio->freq_type))) << "MHz" 
+#endif				   
+				   << std::endl;
 
                 // VAP
                 ind_inc(ind_str);
@@ -588,6 +594,11 @@ void cli_bml::setFunctionsMapAndArray()
         "bml_enable_11k_support", "[<1 or 0>]",
         "if input was given - enable/disable the 802.11k support, prints current value",
         static_cast<pFunction>(&cli_bml::enable_client_roaming_11k_support_caller), 0, 1, INT_ARG);
+#if defined(MORSE_MICRO)
+    insertCommandToMap(
+        "bml_get_agent_status", "","Gets agents status",
+        static_cast<pFunction>(&cli_bml::get_agent_status), 0, 0);
+#endif
     insertCommandToMap("bml_add_unassociated_station_stats",
                        "[<mac> <channel> <operating_class> <agent_mac_address>]",
                        "adds station with mac_address <mac> to the list of unassociated stations."
@@ -1587,6 +1598,15 @@ int cli_bml::connection_map()
     printBmlReturnVals("bml_nw_map_query", ret);
     return 0;
 }
+
+#if defined(MORSE_MICRO)
+int cli_bml::agent_status()
+{
+    int ret = bml_get_agent_status(ctx);
+    printBmlReturnVals("bml_agent_status", ret);
+    return 0;
+}
+#endif
 
 int cli_bml::get_device_operational_radios(const std::string &al_mac)
 {
@@ -2629,6 +2649,16 @@ template <typename T> const std::string cli_bml::string_from_int_array(T *arr, s
     }
     return ss.str();
 }
+
+#if defined(MORSE_MICRO)
+int cli_bml::get_agent_status(int numOfArgs)
+{
+    if (numOfArgs != 0)
+        return -1;
+    else
+        return agent_status();
+}
+#endif
 
 int cli_bml::get_unassociated_station_stats_caller(int numOfArgs)
 {

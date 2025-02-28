@@ -24,6 +24,7 @@ namespace beerocks {
  * 8 IEEE 802.11ax (2.4 GHz)     2.4 GHz    160 MHz      Not included in Table 6-12—Media type (intfType), WiFi6 is specified to use 0x0108 in R2
  * 8 IEEE 802.11ax (5 GHz)       5 GHz      160 MHz      Not included in Table 6-12—Media type (intfType), WiFi6 is specified to use 0x0108 in R2
  * 8 IEEE 802.11ax (6 GHz)       6 GHz      160 MHz
+ * 10 IEEE 802.11ah (Sub 1GHz)   S1G        950 KHz
  */
 static const std::vector<std::tuple<eFreqType, eWiFiBandwidth, ieee1905_1::eMediaType>>
     table_6_12_media_type_802_11{
@@ -59,6 +60,19 @@ static const std::vector<std::tuple<eFreqType, eWiFiBandwidth, ieee1905_1::eMedi
 
         std::make_tuple(eFreqType::FREQ_6G, eWiFiBandwidth::BANDWIDTH_160,
                         ieee1905_1::eMediaType::IEEE_802_11AX),
+#if defined(MORSE_MICRO)
+        std::make_tuple(eFreqType::FREQ_S1G, eWiFiBandwidth::BANDWIDTH_1,
+                        ieee1905_1::eMediaType::IEEE_802_11AH),
+
+        std::make_tuple(eFreqType::FREQ_S1G, eWiFiBandwidth::BANDWIDTH_2,
+                        ieee1905_1::eMediaType::IEEE_802_11AH),
+
+        std::make_tuple(eFreqType::FREQ_S1G, eWiFiBandwidth::BANDWIDTH_4,
+                        ieee1905_1::eMediaType::IEEE_802_11AH),
+
+        std::make_tuple(eFreqType::FREQ_S1G, eWiFiBandwidth::BANDWIDTH_8,
+                        ieee1905_1::eMediaType::IEEE_802_11AH),
+#endif	
     };
 
 ieee1905_1::eMediaType MediaType::get_802_11_media_type(eFreqType frequency_band,

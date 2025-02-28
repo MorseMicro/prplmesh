@@ -28,7 +28,7 @@ option (BUILD_CONTROLLER "Build EasyMesh controller" ON)
 
 option(BUILD_SHARED_LIBS "Build shared libraries (.so) instead of static ones (.a)" ON)
 option (ENABLE_NBAPI "Build the northbound (high-level) API" OFF)
-option (ENABLE_VBSS "Build with Virtual BSS support" ON)
+option (ENABLE_VBSS "Build with Virtual BSS support" OFF)
 
 option(USE_PRPLMESH_WHM "Use prplMesh Wireless Hardware Manager" OFF)
 
@@ -71,6 +71,12 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
   string(REGEX REPLACE "-D_FORTIFY_SOURCE=[0-9]" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
   string(REGEX REPLACE "-D_FORTIFY_SOURCE=[0-9]" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
   add_definitions("-D_FORTIFY_SOURCE=2")
+endif()
+
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  # Remove 'default buildroot' optimization level and build with debug enabled.
+  string(REGEX REPLACE "-O[0123sgz]" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+  add_compile_options(-g -Og)
 endif()
 
 # Default Compiler flags
@@ -149,8 +155,29 @@ elseif (TARGET_PLATFORM STREQUAL "rdkb")
 elseif (TARGET_PLATFORM STREQUAL "linux")
     add_definitions(-DBEEROCKS_LINUX)
     set(BEEROCKS_BH_WIRE_IFACE "eth1" CACHE STRING "Backhaul wire iface")
+
+elseif (TARGET_PLATFORM STREQUAL "MorseMicro")
+    add_definitions(-DMORSE_MICRO)
+
+    set(BEEROCKS_BRIDGE_IFACE  "br0" CACHE STRING "LAN bridge")
+
+    set(BEEROCKS_BH_WIRE_IFACE "eth0" CACHE STRING "Backhaul wire iface")
+    set(BEEROCKS_FH_WIRE_IFACE "" CACHE STRING "Fronthaul wire iface")
+
+    set(BEEROCKS_WLAN1_IFACE   "wlan0" CACHE STRING "1st WLAN iface")
+    set(BEEROCKS_WLAN2_IFACE   "wlan1" CACHE STRING "2nd WLAN iface")
+
+    set(BEEROCKS_LOG_FILES_PATH "/var/log" CACHE PATH "prplMesh logs directory")
+    set(BEEROCKS_LOG_FILES_AUTO_ROLL "false" CACHE STRING "Auto rollback prplMesh logs")
+    set(BEEROCKS_AGENT_LOG_SIZE "10000000" CACHE STRING "Max agent log size")
+    set(BEEROCKS_CONTROLLER_LOG_SIZE "10000000" CACHE STRING "Max controller log size")
+
+    set(BEEROCKS_MONITOR_POLLING_RATE_MSEC 1250)
 endif()
 
+if (TARGET_PLATFORM_TYPE STREQUAL "turris-omnia")
+    add_compile_definitions(MISALIGNED_DWORD_ACCESS_NEEDS_SPECIAL_HANDLING)
+endif()
 # Default values - cached (are set only if not previously set)
 set(BEEROCKS_WLAN1_IFACE   "wlan0" CACHE STRING "1st WLAN iface")
 set(BEEROCKS_WLAN2_IFACE   "wlan2" CACHE STRING "2nd WLAN iface")
@@ -217,3 +244,10 @@ configure_file(
 )
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/version DESTINATION config)
 file(COPY ${CMAKE_CURRENT_BINARY_DIR}/version DESTINATION "${CMAKE_MULTIAP_OUTPUT_DIRECTORY}/config")
+
+if (TARGET_PLATFORM STREQUAL "MorseMicro")
+    # sample config 
+    list(APPEND uci_config_files ${CMAKE_CURRENT_SOURCE_DIR}/uci-defaults/prplmesh ${CMAKE_CURRENT_SOURCE_DIR}/uci-defaults/wireless)
+    install(FILES ${uci_config_files} DESTINATION ${CMAKE_INSTALL_PREFIX}/etc/config)
+    file(COPY ${uci_config_files} DESTINATION "${CMAKE_MULTIAP_OUTPUT_DIRECTORY}/etc/config")
+endif()

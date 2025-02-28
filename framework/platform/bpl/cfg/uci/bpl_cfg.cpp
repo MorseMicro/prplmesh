@@ -501,6 +501,10 @@ int cfg_get_backhaul_params(int *max_vaps, int *network_enabled, int *preferred_
             *preferred_radio_band = BPL_RADIO_BAND_2G;
         } else if (preferred_bh_band.compare("5GHz") == 0) {
             *preferred_radio_band = BPL_RADIO_BAND_5G;
+#if defined(MORSE_MICRO)
+        } else if (preferred_bh_band.compare("S1G")) {
+            *preferred_radio_band = BPL_RADIO_BAND_S1G;
+#endif
         } else if (preferred_bh_band.compare("6GHz") == 0) {
             *preferred_radio_band = BPL_RADIO_BAND_6G;
         } else if (preferred_bh_band.compare("auto") == 0) {

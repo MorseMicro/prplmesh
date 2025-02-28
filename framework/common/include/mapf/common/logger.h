@@ -28,6 +28,12 @@
 #define MAPF_DBG_IF(cond, msg)                                                                     \
     LOG_IF(cond, DEBUG) << msg << resetiosflags((std::ios_base::fmtflags)0xFFFF)
 
+#if defined(MORSE_MICRO)
+#define MORSE_NOT_IMPLEMENTED                                                                      \
+    LOG(WARNING) << "MORSE: Not implemented: " << __func__                                         \
+                 << resetiosflags((std::ios_base::fmtflags)0xFFFF)
+#endif
+
 // configuration files path
 #ifdef BEEROCKS_RDKB
 #define CONF_FILE_WRITEABLE_PATH std::string("/nvram/framework_logging.conf")

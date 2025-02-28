@@ -345,6 +345,24 @@ void monitor_rssi::process()
                 }
             }
 
+#if defined(MORSE_MICRO)
+            sta_ipv4 = sta_node->get_ipv4();
+            /* Issue arp-scan for every 4th failed attempt to avoid generating
+             * too much traffic.
+             */
+            if ((sta_ipv4.empty() || sta_ipv4 == network_utils::ZERO_IP_STRING) &&
+                !(sta_node->arp_retry_count_get() % 4)) {
+                LOG(DEBUG) << "arp-scan for " << sta_mac << " on iface=" << arp_iface
+                           << " arp_iface_ipv4=" << arp_iface_ipv4
+                           << " arp_retry=" << sta_node->arp_retry_count_get();
+                auto sta_ip = network_utils::linux_arp_scan(arp_iface, sta_mac, arp_iface_ipv4);
+                LOG(DEBUG) << "ARP Scan IP=" << sta_ip;
+                if (!sta_ip.empty()) {
+                    sta_node->set_ipv4(sta_ip);
+                }
+            }
+#endif
+
             LOG(DEBUG) << "state: SEND_ARP -> "
                        << (sta_node->get_arp_burst() ? "WAIT_FIRST_REPLY" : "WAIT_REPLY")
                        << ", arp_iface = " << arp_iface << ", arp_iface_ipv4 = " << arp_iface_ipv4
@@ -378,8 +396,8 @@ void monitor_rssi::send_rssi_measurement_response(const std::string &sta_mac,
             beerocks_message::cACTION_MONITOR_CLIENT_RX_RSSI_MEASUREMENT_RESPONSE>(cmdu_tx,
                                                                                    request_id);
         if (response == nullptr) {
-            LOG(ERROR)
-                << "Failed building ACTION_CONTROL_CLIENT_RX_RSSI_MEASUREMENT_RESPONSE message!";
+            LOG(ERROR) << "Failed building ACTION_CONTROL_CLIENT_RX_RSSI_MEASUREMENT_RESPONSE "
+                          "message!";
             break;
         }
 
@@ -423,8 +441,8 @@ void monitor_rssi::monitor_idle_station(const std::string &sta_mac, monitor_sta_
             auto notification = message_com::create_vs_message<
                 beerocks_message::cACTION_MONITOR_CLIENT_NO_ACTIVITY_NOTIFICATION>(cmdu_tx);
             if (notification == nullptr) {
-                LOG(ERROR)
-                    << "Failed building ACTION_MONITOR_CLIENT_NO_ACTIVITY_NOTIFICATION message!";
+                LOG(ERROR) << "Failed building ACTION_MONITOR_CLIENT_NO_ACTIVITY_NOTIFICATION "
+                              "message!";
                 return;
             }
 

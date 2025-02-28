@@ -2117,6 +2117,10 @@ void ApManager::fill_cs_params(beerocks_message::sApChannelSwitch &params)
     params.vht_center_frequency      = ap_wlan_hal->get_radio_info().vht_center_freq;
     params.switch_reason             = uint8_t(ap_wlan_hal->get_radio_info().last_csa_sw_reason);
     params.is_dfs_channel            = ap_wlan_hal->get_radio_info().is_dfs_channel;
+#if defined(MORSE_MICRO)
+    params.s1g_freq                  = ap_wlan_hal->get_radio_info().s1g_freq;
+    params.s1g_op_class              = ap_wlan_hal->get_radio_info().s1g_op_class;
+#endif
 }
 
 void ApManager::fill_sr_params(beerocks_message::sSpatialReuseParams &params)
@@ -2936,6 +2940,13 @@ void ApManager::handle_hostapd_attached()
     build_channels_list(cmdu_tx, ap_wlan_hal->get_radio_info().channels_list, channel_list_class);
     notification->add_channel_list(channel_list_class);
 
+#if defined(MORSE_MICRO)
+    if (ap_wlan_hal->get_radio_info().frequency_band == beerocks::FREQ_S1G) {
+        notification->cs_params().s1g_freq = ap_wlan_hal->get_radio_info().s1g_freq;
+        notification->cs_params().s1g_op_class = ap_wlan_hal->get_radio_info().s1g_op_class;
+    }
+#endif
+
     LOG(INFO) << "send ACTION_APMANAGER_JOINED_NOTIFICATION";
     LOG(INFO) << " iface = " << ap_wlan_hal->get_iface_name();
     LOG(INFO) << " mac = " << ap_wlan_hal->get_radio_mac();
@@ -2957,6 +2968,11 @@ void ApManager::handle_hostapd_attached()
     LOG(INFO) << " wifi6_capability = " << std::hex
               << ap_wlan_hal->get_radio_info().wifi6_capability;
     LOG(INFO) << " zwdfs = " << m_ap_support_zwdfs;
+#if defined(MORSE_MICRO)
+    LOG(INFO) << " s1g freq = " << ap_wlan_hal->get_radio_info().s1g_freq;
+    LOG(INFO) << " channel = " << ap_wlan_hal->get_radio_info().channel;
+    LOG(INFO) << " bandwidth = " << ap_wlan_hal->get_radio_info().bandwidth;
+#endif
 
     copy_vaps_info(ap_wlan_hal, notification->vap_list().vaps);
 

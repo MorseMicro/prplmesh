@@ -38,6 +38,9 @@ class tlvAutoconfigFreqBand : public BaseClass
             IEEE_802_11_5_GHZ = 0x1,
             IEEE_802_11_60_GHZ = 0x2,
             IEEE_802_11_6_GHZ = 0x3,
+#if defined(MORSE_MICRO)            
+            IEEE_802_11_S1G_GHZ = 0x4,
+#endif            
         };
         // Enum AutoPrint generated code snippet begining- DON'T EDIT!
         // clang-format off
@@ -47,6 +50,9 @@ class tlvAutoconfigFreqBand : public BaseClass
             case IEEE_802_11_5_GHZ:   return "IEEE_802_11_5_GHZ";
             case IEEE_802_11_60_GHZ:  return "IEEE_802_11_60_GHZ";
             case IEEE_802_11_6_GHZ:   return "IEEE_802_11_6_GHZ";
+#if defined(MORSE_MICRO)            
+            case IEEE_802_11_S1G_GHZ: return "IEEE_802_11_S1G_GHZ";
+#endif            
             }
             static std::string out_str = std::to_string(int(enum_value));
             return out_str.c_str();

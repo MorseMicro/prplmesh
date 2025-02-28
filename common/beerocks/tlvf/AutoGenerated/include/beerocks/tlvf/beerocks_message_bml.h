@@ -64,6 +64,50 @@ class cACTION_BML_PING_RESPONSE : public BaseClass
         eActionOp_BML* m_action_op = nullptr;
 };
 
+#if defined(MORSE_MICRO)
+class cACTION_BML_AGENT_STATUS_REQUEST : public BaseClass
+{
+    public:
+        cACTION_BML_AGENT_STATUS_REQUEST(uint8_t* buff, size_t buff_len, bool parse = false);
+        explicit cACTION_BML_AGENT_STATUS_REQUEST(std::shared_ptr<BaseClass> base, bool parse = false);
+        ~cACTION_BML_AGENT_STATUS_REQUEST();
+
+        static eActionOp_BML get_action_op(){
+            return (eActionOp_BML)(ACTION_BML_AGENT_STATUS_REQUEST);
+        }
+        void class_swap() override;
+        bool finalize() override;
+        static size_t get_initial_size();
+
+    private:
+        bool init();
+        eActionOp_BML* m_action_op = nullptr;
+};
+
+class cACTION_BML_AGENT_STATUS_RESPONSE : public BaseClass
+{
+    public:
+        cACTION_BML_AGENT_STATUS_RESPONSE(uint8_t* buff, size_t buff_len, bool parse = false);
+        explicit cACTION_BML_AGENT_STATUS_RESPONSE(std::shared_ptr<BaseClass> base, bool parse = false);
+        ~cACTION_BML_AGENT_STATUS_RESPONSE();
+
+        static eActionOp_BML get_action_op(){
+            return (eActionOp_BML)(ACTION_BML_AGENT_STATUS_RESPONSE);
+        }
+        uint16_t& state();
+        uint16_t& fd();
+        void class_swap() override;
+        bool finalize() override;
+        static size_t get_initial_size();
+
+    private:
+        bool init();
+        eActionOp_BML* m_action_op = nullptr;
+        uint16_t* m_state = nullptr;
+        uint16_t* m_fd = nullptr;
+};
+#endif
+
 class cACTION_BML_NW_MAP_REQUEST : public BaseClass
 {
     public:

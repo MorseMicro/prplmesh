@@ -204,7 +204,11 @@ private:
     static constexpr uint8_t BEACON_TRANSMIT_TIME_MS = 100;
     static constexpr uint8_t BSS_STEER_IMMINENT_VALID_INT_BTT =
         (beerocks::BSS_STEER_DISASSOC_TIMER_MS / BEACON_TRANSMIT_TIME_MS);
+#if defined(MORSE_MICRO)
+    static constexpr uint8_t BSS_STEER_VALID_INT_BTT = 5; // 500ms
+#else
     static constexpr uint8_t BSS_STEER_VALID_INT_BTT = 2; // 200ms
+#endif
 
     /**
      * Buffer to hold CMDU to be transmitted.

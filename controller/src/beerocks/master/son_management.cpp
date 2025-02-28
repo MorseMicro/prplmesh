@@ -708,6 +708,37 @@ void son_management::handle_bml_message(int sd, std::shared_ptr<beerocks_header>
     }
 
     switch (beerocks_header->action_op()) {
+#if defined(MORSE_MICRO)
+    case beerocks_message::ACTION_BML_AGENT_STATUS_REQUEST: {
+        LOG(TRACE) << "ACTION_BML_AGENT_STATUS_REQUEST";
+
+        auto request = message_com::create_vs_message<
+                beerocks_message::cACTION_CONTROL_AGENT_STATUS>(cmdu_tx);
+        request->fd() = sd;
+        auto slaves = database.get_active_hostaps();
+        for (const auto &slave : slaves) {
+            if (database.is_hostap_active(tlvf::mac_from_string(slave))) {
+                auto agent_mac = database.get_node_parent_ire(slave);
+                son_actions::send_cmdu_to_agent(agent_mac, cmdu_tx, database, slave);
+            }
+        }
+    } break;
+    case beerocks_message::ACTION_BML_AGENT_STATUS_RESPONSE: {
+        LOG(DEBUG) << "GOT ACTION_BML_AGENT_STATUS_RESPONSE";
+        auto response =
+            beerocks_header->addClass<beerocks_message::cACTION_BML_AGENT_STATUS_RESPONSE>();
+        if (response == nullptr) {
+            LOG(ERROR) << "addClass cACTION_BML_AGENT_STATUS_RESPONSE failed";
+            break;
+        }
+
+        LOG(DEBUG) << "agent status:" << response->state();
+        auto request = beerocks::message_com::create_vs_message<
+                beerocks_message::cACTION_BML_AGENT_STATUS_RESPONSE>(cmdu_tx);
+        request->state() = response->state();
+        controller_ctx->send_cmdu(response->fd(), cmdu_tx);
+    } break;
+#endif
     case beerocks_message::ACTION_BML_PING_REQUEST: {
         LOG(TRACE) << "ACTION_BML_PING_REQUEST";
         auto response =
@@ -1702,6 +1733,12 @@ void son_management::handle_bml_message(int sd, std::shared_ptr<beerocks_header>
             // Specific On-Demand Channel-Selection request
 
             // Get operating-class & check validity
+#if defined(MORSE_MICRO)
+            if (freq_type == eFreqType::FREQ_S1G)
+                operating_class = wireless_utils::get_s1g_operating_class_by_channel(
+                    request->channel(), request->bandwidth(), freq_type);
+            else
+#endif
             operating_class = wireless_utils::get_operating_class_by_channel(
                 beerocks::WifiChannel(request->channel(), freq_type, request->bandwidth()));
             if (operating_class == 0) {

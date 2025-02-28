@@ -174,6 +174,19 @@ int bml_nw_map_register_query_cb(BML_CTX ctx, BML_NW_MAP_QUERY_CB cb)
     return (BML_RET_OK);
 }
 
+#if defined(MORSE_MICRO)
+int bml_get_agent_status(BML_CTX ctx)
+{
+    if (!ctx) {
+        LOG(DEBUG) << "CTX not defined";
+        return (-BML_RET_INVALID_ARGS);
+    }
+
+    auto pBML = static_cast<bml_internal *>(ctx);
+    return(pBML->get_agent_state());
+}
+#endif
+
 int bml_nw_map_register_update_cb(BML_CTX ctx, BML_NW_MAP_QUERY_CB cb)
 {
     if (!ctx)

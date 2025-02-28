@@ -67,9 +67,19 @@ void TopologyTask::work()
     // Iterate on each of known 1905.1 neighbors and check if we have received in the last
     // 60 seconds a Topology Discovery message from it. If not, remove this neighbor from our list
     // and send a Topology Notification message.
+#if defined(MORSE_MICRO)
+    /*
+     * Increase the timeout as it is observed that sometimes (while running iperf) it is taking more
+     * than the grace period i.e. 3 seconds to receive the topology discovery message even though IRE
+     * is sending at right time.
+     */
+#endif
     static constexpr uint8_t DISCOVERY_NEIGHBOUR_REMOVAL_TIMEOUT_SEC =
+#if defined(MORSE_MICRO)
+        2 * ieee1905_1_consts::DISCOVERY_NOTIFICATION_TIMEOUT_SEC + 10; // 10 seconds grace period.
+#else
         ieee1905_1_consts::DISCOVERY_NOTIFICATION_TIMEOUT_SEC + 3; // 3 seconds grace period.
-
+#endif
     bool neighbors_list_changed = false;
     for (auto &neighbors_on_local_iface_entry : db->neighbor_devices) {
         auto &neighbors_on_local_iface = neighbors_on_local_iface_entry.second;
@@ -78,7 +88,9 @@ void TopologyTask::work()
             if (now - last_topology_discovery >
                 std::chrono::seconds(DISCOVERY_NEIGHBOUR_REMOVAL_TIMEOUT_SEC)) {
                 auto &device_al_mac = it->first;
-                LOG(INFO) << "Removed 1905.1 device " << device_al_mac << " from neighbors list";
+                LOG(INFO) << "Removed 1905.1 device " << device_al_mac
+                          << " from neighbors list, Timeout (secs)="
+                          << DISCOVERY_NEIGHBOUR_REMOVAL_TIMEOUT_SEC;
                 it                     = neighbors_on_local_iface.erase(it);
                 neighbors_list_changed = true;
                 continue;
@@ -88,7 +100,7 @@ void TopologyTask::work()
     }
 
     if (neighbors_list_changed) {
-        LOG(INFO) << "Sending topology notification on removeing of 1905.1 neighbors";
+        LOG(INFO) << "Sending topology notification on removing of 1905.1 neighbors";
         send_topology_notification();
     }
 }

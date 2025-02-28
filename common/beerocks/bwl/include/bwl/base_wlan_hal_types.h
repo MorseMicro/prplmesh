@@ -158,6 +158,9 @@ struct RadioInfo {
     int wifi_ctrl_enabled              = 0; // Hostapd / wpa_supplicant
     bool tx_enabled                    = false;
     bool is_5ghz                       = false;
+#if defined(MORSE_MICRO)
+    bool is_s1g                        = false;
+#endif
     int channel                        = 0;
     int bandwidth                      = 0;
     int channel_ext_above              = 0;
@@ -165,6 +168,11 @@ struct RadioInfo {
     bool is_dfs_channel                = false;
     int ant_num                        = 0;
     int tx_power                       = 0;
+#if defined(MORSE_MICRO)
+    int s1g_freq                       = 0;
+    int s1g_op_class                   = 0;
+    std::string s1g_country;
+#endif
     beerocks::eFreqType frequency_band = beerocks::eFreqType::FREQ_UNKNOWN; /**< Frequency band */
     beerocks::eWiFiBandwidth max_bandwidth =
         beerocks::eWiFiBandwidth::BANDWIDTH_UNKNOWN; /**< Maximum supported bandwidth */

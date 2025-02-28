@@ -28,6 +28,10 @@ elseif(TARGET_PLATFORM STREQUAL "openwrt")
         set(BWL_TYPE "NL80211")
     endif()
 
+elseif(TARGET_PLATFORM STREQUAL "MorseMicro")
+
+    set(BWL_TYPE "NL80211")
+
 endif()
 
 if (USE_PRPLMESH_WHM)
@@ -122,6 +126,10 @@ elseif(BWL_TYPE STREQUAL "NL80211")
     find_package(nl-genl-3 REQUIRED)
     list(APPEND BWL_LIBS nl-genl-3)
 
+    if(TARGET_PLATFORM STREQUAL "MorseMicro")
+    list(APPEND BWL_LIBS wpa_client)
+    endif()
+    
     file(GLOB bwl_platform_sources
         ${MODULE_PATH}/shared/*.c*
         ${MODULE_PATH}/nl80211/*.c*

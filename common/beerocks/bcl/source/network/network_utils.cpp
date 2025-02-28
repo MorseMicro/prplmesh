@@ -605,6 +605,18 @@ bool network_utils::linux_add_iface_to_bridge(const std::string &bridge, const s
     }
 
     close(br_socket_fd);
+
+#if defined(MORSE_MICRO)
+    std::string cmd;
+
+    cmd.append("ip link set dev ");
+    cmd.append(iface);
+    cmd.append(" master ");
+    cmd.append(bridge);
+
+    os_utils::system_call(cmd);
+#endif
+
     return err < 0 ? false : true;
     /*
     std::string cmd;
@@ -614,6 +626,53 @@ bool network_utils::linux_add_iface_to_bridge(const std::string &bridge, const s
     return true;
     */
 }
+
+#if defined(MORSE_MICRO)
+std::string network_utils::linux_arp_scan(const std::string &bridge, const std::string sta_mac, std::string ip)
+{
+    std::string cmd;
+    std::string temp;
+    std::vector <std::string> ip_mac;
+
+    cmd.append("arp-scan -q -x -M 1 -r 1 -i 15 -I ");
+    cmd.append(bridge);
+    cmd.append(" -T ");
+    cmd.append(sta_mac);
+    cmd.append(" ");
+    std::istringstream ip_ss(ip);
+    int i = 0;
+    std::string final_ip;
+
+    while (getline(ip_ss, temp, '.')) {
+        if (i == 3) {
+            final_ip += "0/24";
+            break;
+        }
+        final_ip += temp;
+        i++;
+        final_ip += ".";
+    }
+    cmd.append(final_ip);
+
+    std::string arp_scan_output = os_utils::system_call_with_output(cmd, true);
+    if (arp_scan_output.empty()) {
+        return "";
+    }
+
+    std::istringstream ss(arp_scan_output);
+    temp = "";
+    while(getline(ss, temp, '\t')) {
+        ip_mac.push_back(temp);
+    }
+
+    if (ip_mac[1].compare(0, 17, sta_mac) != 0) {
+        LOG(ERROR) << sta_mac << " not same as " << ip_mac[1];
+        return "";
+    }
+
+    return ip_mac[0];
+}
+#endif
 
 bool network_utils::linux_remove_iface_from_bridge(const std::string &bridge,
                                                    const std::string &iface)

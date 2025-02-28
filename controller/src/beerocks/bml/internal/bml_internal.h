@@ -426,6 +426,11 @@ public:
 
 #endif /* FEATURE_PRE_ASSOCIATION_STEERING */
 
+#if defined(MORSE_MICRO)
+    int get_agent_state();
+    #define STATE_OPERATIONAL (15)
+#endif
+
     /*
  * Public static methods:
  */
@@ -500,6 +505,9 @@ private:
     beerocks::promise<bool> *m_prmClientGet              = nullptr;
     beerocks::promise<bool> *m_prmSelectionPoolGet       = nullptr;
     beerocks::promise<int> *m_prmUnAssocStaLinkMetricGet = nullptr;
+#if defined(MORSE_MICRO)
+    beerocks::promise<uint16_t> *m_prmAgentStatus      = nullptr;
+#endif
 
     std::map<uint8_t, beerocks::promise<int> *> m_prmCliResponses;
 

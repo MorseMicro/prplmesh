@@ -19,8 +19,8 @@
 extern "C" {
 #include <wpa_ctrl.h>
 }
-
 #include <linux/nl80211.h>
+#include <net/if.h>
 #include <netlink/genl/ctrl.h>
 #include <netlink/genl/family.h>
 #include <netlink/genl/genl.h>
@@ -148,7 +148,7 @@ bool mon_wlan_hal_nl80211::update_stations_stats(const std::string &vap_iface_na
     stats_policy[NL80211_STA_INFO_TX_RETRIES]    = {NLA_U32, 0, 0};
     stats_policy[NL80211_STA_INFO_TX_FAILED]     = {NLA_U32, 0, 0};
     stats_policy[NL80211_STA_INFO_STA_FLAGS]  = {NLA_UNSPEC, sizeof(struct nl80211_sta_flag_update),
-                                                0};
+                                                 0};
     stats_policy[NL80211_STA_INFO_LOCAL_PM]   = {NLA_U32, 0, 0};
     stats_policy[NL80211_STA_INFO_PEER_PM]    = {NLA_U32, 0, 0};
     stats_policy[NL80211_STA_INFO_NONPEER_PM] = {NLA_U32, 0, 0};
@@ -299,6 +299,53 @@ bool mon_wlan_hal_nl80211::update_stations_stats(const std::string &vap_iface_na
         LOG(ERROR) << "Failed updating stats for station: " << sta_mac;
         return false;
     }
+
+#if defined(MORSE_MICRO)
+    // For the correct bw for clients and backhauls need to send get_interfce nl cmd
+    int iface_index = if_nametoindex(vap_iface_name.c_str());
+    auto ret_s1g    = send_nl80211_msg(
+        NL80211_CMD_GET_INTERFACE, 0,
+        // Create the message
+        [&](struct nl_msg *msg) -> bool {
+            nla_put_u32(msg, NL80211_ATTR_IFINDEX, iface_index);
+            return true;
+        },
+        // Handle the reponse
+        [&](struct nl_msg *msg) -> bool {
+            struct nlattr *tb[NL80211_ATTR_MAX + 1];
+            struct genlmsghdr *gnlh = (struct genlmsghdr *)nlmsg_data(nlmsg_hdr(msg));
+
+            // Parse the netlink message
+            if (nla_parse(tb, NL80211_ATTR_MAX, genlmsg_attrdata(gnlh, 0), genlmsg_attrlen(gnlh, 0),
+                             NULL)) {
+                LOG(ERROR) << "Failed to parse netlink message!";
+                return false;
+            }
+            if (tb[NL80211_ATTR_CHANNEL_WIDTH]) {
+                int s1g_bw = nla_get_u32(tb[NL80211_ATTR_CHANNEL_WIDTH]);
+
+                if (s1g_bw == NL80211_CHAN_WIDTH_20) {
+                    sta_stats.dl_bandwidth = beerocks::BANDWIDTH_1;
+                } else if (s1g_bw == NL80211_CHAN_WIDTH_40) {
+                    sta_stats.dl_bandwidth = beerocks::BANDWIDTH_2;
+                } else if (s1g_bw == NL80211_CHAN_WIDTH_80) {
+                    sta_stats.dl_bandwidth = beerocks::BANDWIDTH_4;
+                } else if (s1g_bw == NL80211_CHAN_WIDTH_160) {
+                    sta_stats.dl_bandwidth = beerocks::BANDWIDTH_8;
+                } else {
+                    LOG(DEBUG) << "Cannot get s1g bw setting to 0";
+                    sta_stats.dl_bandwidth = 0;
+                }
+            }
+            return true;
+        },
+        vap_iface_name);
+
+    if (!ret_s1g) {
+        LOG(ERROR) << "Failed updating stats for station: " << sta_mac;
+        return false;
+    }
+#endif
 
     return true;
 }

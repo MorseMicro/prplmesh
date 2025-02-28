@@ -277,7 +277,9 @@ bool db::add_node(const sMacAddr &mac, const sMacAddr &parent_mac, beerocks::eTy
         if (!n->set_type(type)) {
             LOG(ERROR) << "Mac duplication detected as existing type is " << n->get_type()
                        << " and received type is " << type;
+#if !defined(MORSE_MICRO)
             return false;
+#endif
         }
         if (n->parent_mac != tlvf::mac_to_string(parent_mac)) {
             n->previous_parent_mac = n->parent_mac;
@@ -2048,6 +2050,12 @@ bool db::set_hostap_supported_channels(const sMacAddr &mac, beerocks::WifiChanne
     case eFreqType::FREQ_6G:
         n->supports_6ghz = true;
         break;
+#if defined(MORSE_MICRO)
+	case eFreqType::FREQ_S1G:
+		LOG(DEBUG) << "s1g chan:" << n->hostap->supported_channels[0].get_channel();
+        break;
+#endif
+
     default:
         LOG(ERROR) << "unknown frequency! channel: "
                    << int(n->hostap->supported_channels[0].get_channel());
@@ -5169,6 +5177,29 @@ bool db::set_measurement_window_size(const std::string &mac, int window_size)
     return true;
 }
 
+#if defined(MORSE_MICRO)
+bool db::set_node_s1g_op_class_and_freq(const sMacAddr &mac, int s1g_op_class, float s1g_freq)
+{
+    std::shared_ptr<node> n = get_node(mac);
+    if (!n) {
+        LOG(ERROR) << "node " << mac << " does not exist ";
+        return false;
+    }
+
+    if (n->get_type() == beerocks::TYPE_SLAVE) {
+        if (n->hostap != nullptr) {
+            n->hostap->operating_class = s1g_op_class;
+        } else {
+            LOG(ERROR) << __FUNCTION__ << " - node " << mac << " is null!";
+            return false;
+        }
+    }
+    n->s1g_freq = s1g_freq / 1000;
+    LOG(INFO) << "set node " << mac << " op class to" << s1g_op_class;
+    return true;
+}
+#endif
+
 beerocks::WifiChannel db::get_node_wifi_channel(const std::string &mac)
 {
     auto n = get_node(mac);
@@ -5187,8 +5218,15 @@ bool db::set_node_wifi_channel(const sMacAddr &mac, const beerocks::WifiChannel 
     }
     if (n->get_type() == beerocks::TYPE_SLAVE) {
         if (n->hostap != nullptr) {
+#if defined(MORSE_MICRO)
+            n->hostap->operating_class =
+                son::wireless_utils::get_s1g_operating_class_by_channel(wifi_channel.get_channel(),
+                                            wifi_channel.get_bandwidth(),
+                                            wifi_channel.get_freq_type());
+#else
             n->hostap->operating_class =
                 son::wireless_utils::get_operating_class_by_channel(wifi_channel);
+#endif
             if (n->hostap->operating_class == 0) {
                 LOG(ERROR) << "failed to get operating class of " << wifi_channel;
             }
@@ -5217,6 +5255,12 @@ bool db::set_node_wifi_channel(const sMacAddr &mac, const beerocks::WifiChannel 
         n->supports_6ghz             = true;
         n->failed_6ghz_steer_attemps = 0;
     } break;
+#if defined(MORSE_MICRO)
+	case eFreqType::FREQ_S1G: {
+        n->supports_5ghz = false;
+        n->failed_5ghz_steer_attemps = 0;
+    } break;
+#endif	
     default:
         LOG(ERROR) << "frequency type unknown, channel=" << n->wifi_channel.get_channel();
         break;
@@ -7916,7 +7960,7 @@ bool db::dm_clear_radio_cac_capabilities(const Agent::sRadio &radio)
         return true;
     }
 
-    return m_ambiorix_datamodel->remove_all_instances(radio.dm_path + ".CACCapability");
+    return m_ambiorix_datamodel->remove_all_instances(radio.dm_path + ".CACCapability.CACMethod");
 }
 
 bool db::dm_add_radio_cac_capabilities(

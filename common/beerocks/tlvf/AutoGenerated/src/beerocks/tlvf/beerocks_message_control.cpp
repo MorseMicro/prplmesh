@@ -637,6 +637,88 @@ bool cACTION_CONTROL_CHANGE_MODULE_LOGGING_LEVEL::init()
     return true;
 }
 
+#if defined(MORSE_MICRO)
+cACTION_CONTROL_AGENT_STATUS::cACTION_CONTROL_AGENT_STATUS(uint8_t* buff, size_t buff_len, bool parse) :
+    BaseClass(buff, buff_len, parse) {
+    m_init_succeeded = init();
+}
+cACTION_CONTROL_AGENT_STATUS::cACTION_CONTROL_AGENT_STATUS(std::shared_ptr<BaseClass> base, bool parse) :
+BaseClass(base->getBuffPtr(), base->getBuffRemainingBytes(), parse){
+    m_init_succeeded = init();
+}
+cACTION_CONTROL_AGENT_STATUS::~cACTION_CONTROL_AGENT_STATUS() {
+}
+uint16_t& cACTION_CONTROL_AGENT_STATUS::state() {
+    return (uint16_t&)(*m_state);
+}
+
+uint16_t& cACTION_CONTROL_AGENT_STATUS::fd() {
+    return (uint16_t&)(*m_fd);
+}
+
+void cACTION_CONTROL_AGENT_STATUS::class_swap()
+{
+    tlvf_swap(8*sizeof(eActionOp_CONTROL), reinterpret_cast<uint8_t*>(m_action_op));
+    tlvf_swap(16, reinterpret_cast<uint8_t*>(m_state));
+    tlvf_swap(16, reinterpret_cast<uint8_t*>(m_fd));
+}
+
+bool cACTION_CONTROL_AGENT_STATUS::finalize()
+{
+    if (m_parse__) {
+        TLVF_LOG(DEBUG) << "finalize() called but m_parse__ is set";
+        return true;
+    }
+    if (m_finalized__) {
+        TLVF_LOG(DEBUG) << "finalize() called for already finalized class";
+        return true;
+    }
+    if (!isPostInitSucceeded()) {
+        TLVF_LOG(ERROR) << "post init check failed";
+        return false;
+    }
+    if (m_inner__) {
+        if (!m_inner__->finalize()) {
+            TLVF_LOG(ERROR) << "m_inner__->finalize() failed";
+            return false;
+        }
+        auto tailroom = m_inner__->getMessageBuffLength() - m_inner__->getMessageLength();
+        m_buff_ptr__ -= tailroom;
+    }
+    class_swap();
+    m_finalized__ = true;
+    return true;
+}
+
+size_t cACTION_CONTROL_AGENT_STATUS::get_initial_size()
+{
+    size_t class_size = 0;
+    class_size += sizeof(uint16_t); // state
+    class_size += sizeof(uint16_t); // fd
+    return class_size;
+}
+
+bool cACTION_CONTROL_AGENT_STATUS::init()
+{
+    if (getBuffRemainingBytes() < get_initial_size()) {
+        TLVF_LOG(ERROR) << "Not enough available space on buffer. Class init failed";
+        return false;
+    }
+    m_state = reinterpret_cast<uint16_t*>(m_buff_ptr__);
+    if (!buffPtrIncrementSafe(sizeof(uint16_t))) {
+        LOG(ERROR) << "buffPtrIncrementSafe(" << std::dec << sizeof(uint16_t) << ") Failed!";
+        return false;
+    }
+    m_fd = reinterpret_cast<uint16_t*>(m_buff_ptr__);
+    if (!buffPtrIncrementSafe(sizeof(uint16_t))) {
+        LOG(ERROR) << "buffPtrIncrementSafe(" << std::dec << sizeof(uint16_t) << ") Failed!";
+        return false;
+    }
+    if (m_parse__) { class_swap(); }
+    return true;
+}
+#endif 
+
 cACTION_CONTROL_HOSTAP_CSA_ERROR_NOTIFICATION::cACTION_CONTROL_HOSTAP_CSA_ERROR_NOTIFICATION(uint8_t* buff, size_t buff_len, bool parse) :
     BaseClass(buff, buff_len, parse) {
     m_init_succeeded = init();

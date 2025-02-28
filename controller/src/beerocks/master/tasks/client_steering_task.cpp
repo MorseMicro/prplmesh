@@ -185,11 +185,17 @@ void client_steering_task::steer_sta()
         LOG(ERROR) << "client " << m_sta_mac << " not found";
     }
 
+#if defined(MORSE_MICRO)
+    if (client && !m_database.set_node_handoff_flag(*client, true)) {
+        LOG(ERROR) << "can't set handoff flag for " << m_sta_mac;
+    }
+#else
     if (m_database.get_node_type(m_sta_mac) != beerocks::TYPE_IRE_BACKHAUL) {
         if (client && !m_database.set_node_handoff_flag(*client, true)) {
             LOG(ERROR) << "can't set handoff flag for " << m_sta_mac;
         }
     }
+#endif
 
     std::string target_radio_mac = m_database.get_node_parent_radio(m_target_bssid);
     if (target_radio_mac.empty()) {
@@ -229,6 +235,16 @@ void client_steering_task::steer_sta()
                         << " has an active socket, sending BACKHAUL_ROAM_REQUEST";
         auto roam_request =
             m_cmdu_tx.create(0, ieee1905_1::eMessageType::BACKHAUL_STEERING_REQUEST_MESSAGE);
+#if defined(MORSE_MICRO)
+        auto children = m_database.get_node_children(m_sta_mac, beerocks::TYPE_IRE);
+
+        if (children.empty()) {
+            LOG(ERROR) << "No children found for mac " << m_sta_mac << ", exiting steering task";
+            return;
+        }
+        std::string sta_agent_mac = *children.begin();
+#endif
+
         if (!roam_request) {
             LOG(ERROR) << "Failed building BACKHAUL_STEERING_REQUEST_MESSAGE!";
             return;
@@ -252,9 +268,14 @@ void client_steering_task::steer_sta()
             m_database.get_hostap_operating_class(tlvf::mac_from_string(m_target_bssid));
         bh_steer_req_tlv->finalize();
 
+#if defined(MORSE_MICRO)
+        son_actions::send_cmdu_to_agent(tlvf::mac_from_string(sta_agent_mac), m_cmdu_tx, m_database,
+                                        target_radio_mac);
+#else
         son_actions::send_cmdu_to_agent(target_agent->al_mac, m_cmdu_tx, m_database,
                                         target_radio_mac);
         // TODO: send backhaul steering to the owner of the bSTA (PPM-2118)
+#endif
 
         // update bml listeners
         bml_task::bh_roam_req_available_event bh_roam_event;
@@ -291,11 +312,16 @@ void client_steering_task::steer_sta()
                 /*
                  * consider BTM support in current station capabilities (when available)
                  * independently from updated 11v responsiveness
-		 */
+                 */
                 auto cur_sta_cap = m_database.get_station_current_capabilities(m_sta_mac);
                 if (cur_sta_cap && cur_sta_cap->btm_supported) {
-                    continue;
+                    LOG(ERROR) << "btm is supported by STA \n";
                 }
+                /*
+                 * All MM devices support 11v, avoid sending block(DENY ACL) cmd to hostAP.
+                 * As DENY ACL command sends deauth the STA.
+                 */
+                continue;
             }
 
             // Send 17.1.27	Client Association Control Request : Block

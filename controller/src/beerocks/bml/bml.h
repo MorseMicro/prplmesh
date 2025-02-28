@@ -87,6 +87,10 @@ void *bml_get_user_data(BML_CTX ctx);
  */
 int bml_ping(BML_CTX ctx);
 
+#if defined(MORSE_MICRO)
+int bml_get_agent_status(BML_CTX ctx);
+#endif
+
 /**
  * Registers a callback functions for the network map query operation.
  * When calling the bml_nw_map_query() function, a request to send the entire

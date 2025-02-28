@@ -124,6 +124,10 @@ typedef struct sApChannelSwitch {
     uint16_t vht_center_frequency;
     int8_t tx_power;
     uint8_t csa_count;
+#if defined(MORSE_MICRO)
+    uint8_t s1g_op_class;
+    int s1g_freq;
+#endif
     void struct_swap(){
         tlvf_swap(16, reinterpret_cast<uint8_t*>(&vht_center_frequency));
     }

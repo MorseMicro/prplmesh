@@ -14,9 +14,9 @@
 #define _TLVF_IEEE_1905_1_EMEDIATYPE_H_
 
 #include <cstddef>
+#include <ostream>
 #include <stdint.h>
 #include <tlvf/swap.h>
-#include <ostream>
 
 namespace ieee1905_1 {
 
@@ -32,6 +32,9 @@ enum eMediaType: uint16_t {
     IEEE_802_11AD_60_GHZ = 0x106,
     IEEE_802_11AF = 0x107,
     IEEE_802_11AX = 0x108,
+#if defined(MORSE_MICRO)
+    IEEE_802_11AH = 0x109,
+#endif	
     IEEE_1901_WAVELET = 0x200,
     IEEE_1901_FFT = 0x201,
     MOCA_V1_1 = 0x300,
@@ -52,6 +55,9 @@ static const char *eMediaType_str(eMediaType enum_value) {
     case IEEE_802_11AD_60_GHZ:          return "IEEE_802_11AD_60_GHZ";
     case IEEE_802_11AF:                 return "IEEE_802_11AF";
     case IEEE_802_11AX:                 return "IEEE_802_11AX";
+#if defined(MORSE_MICRO)
+    case IEEE_802_11AH:                 return "IEEE_802_11AH"; // MORSE_MICRO
+#endif
     case IEEE_1901_WAVELET:             return "IEEE_1901_WAVELET";
     case IEEE_1901_FFT:                 return "IEEE_1901_FFT";
     case MOCA_V1_1:                     return "MOCA_V1_1";
@@ -64,12 +70,12 @@ inline std::ostream &operator<<(std::ostream &out, eMediaType value) { return ou
 // clang-format on
 // Enum AutoPrint generated code snippet end
 
-enum eMediaTypeGroup: uint8_t {
-    IEEE_802_3 = 0x0,
+enum eMediaTypeGroup : uint8_t {
+    IEEE_802_3  = 0x0,
     IEEE_802_11 = 0x1,
-    IEEE_1901 = 0x2,
-    MoCA = 0x3,
-    UNKNOWN = 0xff,
+    IEEE_1901   = 0x2,
+    MoCA        = 0x3,
+    UNKNOWN     = 0xff,
 };
 // Enum AutoPrint generated code snippet begining- DON'T EDIT!
 // clang-format off

@@ -32,7 +32,7 @@ public:
      * @param bandwidth the bandwidth of the channel
      * @param m_ext_above_secondary true if the secondary channel is above the primary one. otherwise, false
      */
-    explicit WifiChannel(uint8_t channel, uint16_t center_frequency, eWiFiBandwidth bandwidth,
+    explicit WifiChannel(uint8_t channel, uint32_t center_frequency, eWiFiBandwidth bandwidth,
                          bool m_ext_above_secondary = false);
 
     /**
@@ -45,6 +45,17 @@ public:
      */
     explicit WifiChannel(uint8_t channel, eFreqType freq_type, eWiFiBandwidth bandwidth,
                          bool m_ext_above_secondary = false);
+#if defined(MORSE_MICRO)
+    /**
+     * @brief Construct a new S1G Wifi Channel object
+     *
+     * @param channel the primary channel
+     * @param center_frequency the center frequency
+     * @param s1g_freq S1G center frequency
+     * @param bandwidth the bandwidth of the channel
+     */
+    explicit WifiChannel(uint8_t channel, uint32_t center_frequency, uint32_t s1g_freq, eWiFiBandwidth bandwidth);
+#endif
 
     /**
     * @brief Construct a new Wifi Channel object from an existed WifiChannel object
@@ -82,7 +93,7 @@ public:
      * 
      * @return unsigned int 
      */
-    uint16_t get_center_frequency() const;
+    uint32_t get_center_frequency() const;
 
     /**
      * @brief Get the center frequency of a 160MHz bandwidth of a 6ghz band
@@ -90,7 +101,7 @@ public:
      * @return the center frequency of a 160MHz bandwidth of a 6ghz band
      * otherwise, return 0.
      */
-    uint16_t get_center_frequency_2() const;
+    uint32_t get_center_frequency_2() const;
 
     /**
      * @brief Get the bandwidth object
@@ -183,14 +194,30 @@ public:
      */
     void set_radar_affected(uint8_t radar_affected);
 
+#if defined(MORSE_MICRO)
+    /**
+     * @brief Get the S1G freq
+     *
+     * @return s1g_freq
+     */
+    uint32_t get_s1g_freq() const;
+    /**
+     * @brief Get the S1G opclass
+     *
+     * @return s1g_opclass
+     */
+    uint32_t get_s1g_opclass() const;
+#endif
+
     friend std::ostream &operator<<(std::ostream &out, const WifiChannel &wifi_channel);
 
 private:
     void initialize_empty_wifi_channel_members();
     void initialize_wifi_channel_members(uint8_t channel, eFreqType freq_type,
-                                         uint16_t center_frequency, uint16_t center_frequency_2,
+                                         uint32_t center_frequency, uint32_t center_frequency_2,
                                          eWiFiBandwidth m_bandwidth, bool m_ext_above_secondary);
-    bool are_params_valid(uint8_t channel, eFreqType freq_type, uint16_t center_frequency,
+    /* MORSE_MICRO */
+    bool are_params_valid(uint8_t channel, eFreqType freq_type, uint32_t center_frequency,
                           eWiFiBandwidth m_bandwidth);
     bool is_central_channel(uint8_t channel, eWiFiBandwidth bandwidth, eFreqType freq_type) const;
 
@@ -203,7 +230,7 @@ private:
      * The center frequency value is different from frequency
      * value when the bandwidth is above 20mghz.
      */
-    uint16_t m_center_frequency;
+    uint32_t m_center_frequency;
     /**
      * @brief relavent only for 6ghz band and when the bandwidth is ether 160MHz or 80+80MHz.
      * Otherwise, equal to 0.
@@ -213,7 +240,7 @@ private:
      * @note: The center_frequency_2 name is derived from hostapd's variable name cf2, a.k.a center_frequency2.
      * hostapd has both cf1 and cf2 variables.
      */
-    uint16_t m_center_frequency_2;
+    uint32_t m_center_frequency_2;
     /**
      * @brief channel's bandwidth
      */
@@ -222,6 +249,7 @@ private:
      * @brief channel's frequency type. a.k.a band type
      */
     eFreqType m_freq_type;
+
     /**
      * @brief Indicate whether the channel is a DFS channel. This is
      * only relavent for 5ghz band.
@@ -245,6 +273,12 @@ private:
     uint8_t m_tx_power;
 
     uint8_t m_radar_affected;
+
+#if defined(MORSE_MICRO)
+    uint32_t m_s1g_freq;
+    uint32_t m_s1g_opclass;
+#endif
+
 };
 
 } // namespace beerocks

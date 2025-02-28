@@ -53,6 +53,19 @@ bool Configuration::load(const std::set<std::string> &vap_indications)
         auto end_comment = line.find_first_not_of('#');
         auto end_key     = line.find_first_of('=');
 
+#if defined(MORSE_MICRO)
+        // No point continuing if no = was detected.
+        if (end_key == std::string::npos) {
+            continue;
+        }
+
+        // = found inside a comment, so skip it..
+        if (end_comment && (end_comment < end_key)) {
+            continue;
+        }
+#endif
+
+        // Only works if end_comment == 0 ???
         std::string current_key(line, end_comment, end_key + 1);
 
         auto vap_iterator = vap_indications.find(current_key);

@@ -14,10 +14,11 @@ namespace beerocks {
 
 WifiChannel::WifiChannel() { initialize_empty_wifi_channel_members(); }
 
-WifiChannel::WifiChannel(uint8_t channel, uint16_t center_frequency, eWiFiBandwidth bandwidth,
+WifiChannel::WifiChannel(uint8_t channel, uint32_t center_frequency, eWiFiBandwidth bandwidth,
                          bool ext_above_secondary)
 {
     beerocks::eFreqType freq_type = son::wireless_utils::which_freq_type(center_frequency);
+    LOG(INFO) << "wifiChannel_1 params ch: " << channel << " bw: " << bandwidth << "freq: " << center_frequency;
 
     if (!are_params_valid(channel, freq_type, center_frequency, bandwidth)) {
         LOG(ERROR) << "invalid wifiChannel params. Creating an empty channel instead";
@@ -48,13 +49,37 @@ WifiChannel::WifiChannel(uint8_t channel, uint16_t center_frequency, eWiFiBandwi
     }
 }
 
+#if defined(MORSE_MICRO)
+WifiChannel::WifiChannel(uint8_t channel, uint32_t center_frequency, uint32_t s1g_freq, eWiFiBandwidth bandwidth)
+{
+    beerocks::eFreqType freq_type = son::wireless_utils::which_freq_type(s1g_freq);
+
+    LOG(INFO) << "wifiChannel_s1g params ch: " << channel << " bw: " << bandwidth
+                << "freq: " << center_frequency << "s1g_freq: " << s1g_freq;
+    if (!are_params_valid(channel, freq_type, s1g_freq, bandwidth)) {
+        LOG(ERROR) << "invalid wifiChannel params. Creating an empty channel instead";
+        initialize_empty_wifi_channel_members();
+    } else {
+        initialize_wifi_channel_members(channel, freq_type, center_frequency, s1g_freq, bandwidth,
+                                        0);
+    }
+}
+#endif
+
 WifiChannel::WifiChannel(uint8_t channel, eFreqType freq_type, eWiFiBandwidth bandwidth,
                          bool ext_above_secondary)
 {
-    uint16_t center_frequency = son::wireless_utils::channel_to_vht_center_freq(
+    uint16_t center_frequency;
+#if defined(MORSE_MICRO)
+    auto is_s1g = son::wireless_utils::is_bandwidth_s1g(bandwidth);
+    if (is_s1g)
+        center_frequency = son::wireless_utils::s1g_chan_to_freq(channel);
+    else
+#endif
+    center_frequency = son::wireless_utils::channel_to_vht_center_freq(
         channel, freq_type, bandwidth, ext_above_secondary);
 
-    if (!are_params_valid(channel, freq_type, center_frequency, bandwidth)) {
+    if (!is_s1g && !are_params_valid(channel, freq_type, center_frequency, bandwidth)) {
         LOG(ERROR) << "invalid wifiChannel params. Creating an empty channel instead";
         initialize_empty_wifi_channel_members();
     } else if (freq_type == eFreqType::FREQ_6G && bandwidth == eWiFiBandwidth::BANDWIDTH_160) {
@@ -91,6 +116,10 @@ WifiChannel &WifiChannel::operator=(const WifiChannel &wc)
     m_is_dfs              = wc.m_is_dfs;
     m_tx_power            = wc.m_tx_power;
     m_radar_affected      = wc.m_radar_affected;
+#if defined(MORSE_MICRO)
+    m_s1g_freq            = wc.m_s1g_freq;
+    m_s1g_opclass         = wc.m_s1g_opclass;
+#endif
     return *this;
 }
 
@@ -141,18 +170,31 @@ void WifiChannel::set_channel(uint8_t channel)
     }
 }
 
-uint16_t WifiChannel::get_center_frequency() const { return m_center_frequency; }
+uint32_t WifiChannel::get_center_frequency() const { return m_center_frequency; }
 
-uint16_t WifiChannel::get_center_frequency_2() const { return m_center_frequency_2; }
+uint32_t WifiChannel::get_center_frequency_2() const { return m_center_frequency_2; }
 
 eWiFiBandwidth WifiChannel::get_bandwidth() const { return m_bandwidth; }
+
+#if defined(MORSE_MICRO)
+uint32_t WifiChannel::get_s1g_freq() const { return m_s1g_freq; }
+uint32_t WifiChannel::get_s1g_opclass() const { return m_s1g_opclass; }
+#endif
 
 void WifiChannel::set_bandwidth(eWiFiBandwidth bw)
 {
     if (bw == eWiFiBandwidth::BANDWIDTH_UNKNOWN) {
         LOG(ERROR) << "Failed to set bandwidth. Invalid input: unknown bandwidth";
     } else {
-        auto new_center_frequency = son::wireless_utils::channel_to_vht_center_freq(
+#if defined(MORSE_MICRO)
+        if (son::wireless_utils::is_bandwidth_s1g(bw)) {
+            m_ext_above_primary = 0;
+            m_ext_above_secondary = false;
+            m_bandwidth = bw;
+            return;
+        }
+#endif
+        uint32_t new_center_frequency = son::wireless_utils::channel_to_vht_center_freq(
             m_channel, m_freq_type, bw, m_ext_above_secondary);
         if (new_center_frequency < m_center_frequency) {
             m_ext_above_primary   = -1;
@@ -235,18 +277,21 @@ void WifiChannel::initialize_empty_wifi_channel_members()
     m_is_dfs              = false;
     m_tx_power            = 0;
     m_radar_affected      = 0;
+#if defined(MORSE_MICRO)
+    m_s1g_freq            = 0;
+    m_s1g_opclass         = 0;
+#endif
 }
 
 void WifiChannel::initialize_wifi_channel_members(uint8_t channel, eFreqType freq_type,
-                                                  uint16_t center_frequency,
-                                                  uint16_t center_frequency_2,
+                                                  uint32_t center_frequency,
+                                                  uint32_t center_frequency_2,
                                                   eWiFiBandwidth bandwidth,
                                                   bool ext_above_secondary)
 {
     m_channel             = channel;
     m_freq_type           = freq_type;
     m_center_frequency    = center_frequency;
-    m_center_frequency_2  = center_frequency_2;
     m_bandwidth           = bandwidth;
     m_ext_above_secondary = ext_above_secondary;
     m_tx_power            = 0;
@@ -257,6 +302,17 @@ void WifiChannel::initialize_wifi_channel_members(uint8_t channel, eFreqType fre
     } else {
         m_is_dfs = false;
     }
+#if defined(MORSE_MICRO)
+    if (freq_type == eFreqType::FREQ_S1G) {
+        m_ext_above_primary = 0;
+        m_s1g_freq          = center_frequency_2;
+        m_s1g_opclass = son::wireless_utils::get_s1g_operating_class_by_channel(channel, bandwidth, freq_type);
+        LOG(INFO) << "** S1G frequency:" << m_s1g_freq << " VHT freq: " << center_frequency << " of channel: "
+                << channel <<" opclass:" << m_s1g_opclass;
+        return;
+    }
+#endif
+    m_center_frequency_2  = center_frequency_2;
     unsigned int center_channel = son::wireless_utils::freq_to_channel(center_frequency);
     if (channel < center_channel) {
         m_ext_above_primary = 1;
@@ -284,7 +340,7 @@ bool WifiChannel::is_central_channel(uint8_t channel, eWiFiBandwidth bandwidth,
     return false;
 }
 
-bool WifiChannel::are_params_valid(uint8_t channel, eFreqType freq_type, uint16_t center_frequency,
+bool WifiChannel::are_params_valid(uint8_t channel, eFreqType freq_type, uint32_t center_frequency,
                                    eWiFiBandwidth bandwidth)
 {
     if (bandwidth == eWiFiBandwidth::BANDWIDTH_UNKNOWN ||
@@ -294,6 +350,15 @@ bool WifiChannel::are_params_valid(uint8_t channel, eFreqType freq_type, uint16_
         return false;
     }
 
+#if defined(MORSE_MICRO)
+    if (freq_type == eFreqType::FREQ_S1G) {
+        if (center_frequency < BAND_S1G_MIN_FREQ) {
+            LOG(ERROR) << "Center frequency (" << center_frequency << ") of channel " << channel
+                        << " is below the minimum";
+            return false;
+        }
+    } else { // non-S1G
+#endif
     if (center_frequency < BAND_24G_MIN_FREQ) {
         LOG(ERROR) << "Center frequency (" << center_frequency << ") of channel " << channel
                    << " is below the minimum";
@@ -306,7 +371,18 @@ bool WifiChannel::are_params_valid(uint8_t channel, eFreqType freq_type, uint16_
         return false;
     }
 
+#if defined(MORSE_MICRO)
+    } //else
+#endif
     switch (freq_type) {
+#if defined(MORSE_MICRO)
+    case eFreqType::FREQ_S1G: {
+        if (!son::wireless_utils::get_s1g_operating_class_by_channel(channel, bandwidth, freq_type)) {
+            LOG(ERROR) << "Failed to find " << channel << " channel in S1G channels table.";
+            return false;
+        }
+    } break;
+#endif
     case eFreqType::FREQ_24G: {
         if (son::wireless_utils::channels_table_24g.find(channel) ==
             son::wireless_utils::channels_table_24g.end()) {

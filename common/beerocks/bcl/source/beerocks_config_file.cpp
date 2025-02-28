@@ -144,6 +144,10 @@ bool config_file::read_slave_config_file(const std::string &config_file_path, sC
                             &conf.monitor_measurement_window_poll_count, 0),
             std::make_tuple("profile_x_disallow_override_unsupported_configuration=",
                             &conf.profile_x_disallow_override_unsupported_configuration, 0),
+#if defined(MORSE_MICRO)
+            std::make_tuple("wired_backhaul=",
+                            &conf.wired_backhaul, 0),
+#endif
         };
         std::string config_type = "global";
         if (!read_config_file(config_file_path, slave_global_conf_args, config_type)) {

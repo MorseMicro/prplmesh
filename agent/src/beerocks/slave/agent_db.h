@@ -140,6 +140,9 @@ public:
         uint8_t management_mode;
         bool certification_mode;
         uint8_t stop_on_failure_attempts;
+#if defined(MORSE_MICRO)
+        bool wired_backhaul;
+#endif
 
         bool check_connectivity_to_controller_enable;
         bool check_indirect_connectivity_to_controller_enable;

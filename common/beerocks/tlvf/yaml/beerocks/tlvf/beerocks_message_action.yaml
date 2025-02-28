@@ -91,7 +91,8 @@ eActionOp_CONTROL:
   ACTION_CONTROL_CHANNEL_SCAN_ABORT_NOTIFICATION: 146
   ACTION_CONTROL_CHANNEL_SCAN_FINISHED_NOTIFICATION: 147
 
-  ACTION_CONTROL_ENUM_END: 148
+  ACTION_CONTROL_AGENT_STATUS: 148 
+  ACTION_CONTROL_ENUM_END: 149
 
 ####################################################
 ####################################################
@@ -500,7 +501,9 @@ eActionOp_BML:
   ACTION_BML_GET_UNASSOC_STA_QUERY_RESULT_REQUEST: 239
   ACTION_BML_GET_UNASSOC_STA_QUERY_RESULT_RESPONSE: 240 
 
-  ACTION_BML_ENUM_END: 241
+  ACTION_BML_AGENT_STATUS_REQUEST: 241
+  ACTION_BML_AGENT_STATUS_RESPONSE: 242
+  ACTION_BML_ENUM_END: 243
 
 ####################################################
 ####################################################

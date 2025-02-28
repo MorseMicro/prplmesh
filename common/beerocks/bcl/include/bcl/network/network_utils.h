@@ -97,6 +97,9 @@ public:
     static std::vector<network_utils::ip_info> get_ip_list();
     static int get_iface_info(network_utils::iface_info &info, const std::string &iface_name);
     static bool get_raw_iface_info(const std::string &iface_name, raw_iface_info &info);
+#if defined(MORSE_MICRO)
+    static std::string linux_arp_scan(const std::string &bridge, const std::string sta_mac, std::string ip);
+#endif
 
     /**
      * @brief Get the arp table as unordered map object of pairs <MAC, IP> or <IP, MAC>.

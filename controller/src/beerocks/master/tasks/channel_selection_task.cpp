@@ -334,18 +334,36 @@ void channel_selection_task::work()
     }
     case eState::ON_SLAVE_JOINED: {
         auto vht_center_frequency = slave_joined_event->cs_params.vht_center_frequency;
-        auto freq                 = wireless_utils::channel_to_freq(
+        beerocks::WifiChannel wifi_channel;
+#if defined(MORSE_MICRO)
+        auto is_s1g = wireless_utils::is_bandwidth_s1g(static_cast<beerocks::eWiFiBandwidth>(slave_joined_event->cs_params.bandwidth));
+        auto freq = slave_joined_event->cs_params.s1g_freq;
+#else
+        auto freq = wireless_utils::channel_to_freq(
             slave_joined_event->channel,
             son::wireless_utils::which_freq_type(vht_center_frequency));
-
+#endif
         auto channel_ext_above_primary = slave_joined_event->cs_params.channel_ext_above_primary;
-
         auto channel_ext_above_secondary = (freq < vht_center_frequency) ? true : false;
 
-        beerocks::WifiChannel wifi_channel = beerocks::WifiChannel(
-            slave_joined_event->channel, vht_center_frequency,
-            static_cast<beerocks::eWiFiBandwidth>(slave_joined_event->cs_params.bandwidth),
-            channel_ext_above_secondary);
+#if defined(MORSE_MICRO)
+        TASK_LOG(INFO) << "On Slave joined wifi channel mac=" << radio_mac
+                        << " b.w= " << slave_joined_event->cs_params.bandwidth
+                        << " s1g_fre= " << slave_joined_event->cs_params.s1g_freq
+                        << " vht_center_freq= " << slave_joined_event->cs_params.vht_center_frequency
+                        << " channel=" << slave_joined_event->channel
+                        << " op_class=" << slave_joined_event->cs_params.s1g_op_class;
+        if (is_s1g)
+            wifi_channel =
+                beerocks::WifiChannel(slave_joined_event->channel, vht_center_frequency,
+                                    slave_joined_event->cs_params.s1g_freq,
+                                    static_cast<beerocks::eWiFiBandwidth>(slave_joined_event->cs_params.bandwidth));
+        else
+#endif
+           wifi_channel = beerocks::WifiChannel(
+                slave_joined_event->channel, vht_center_frequency,
+                static_cast<beerocks::eWiFiBandwidth>(slave_joined_event->cs_params.bandwidth),
+                channel_ext_above_secondary);
 
         if (!database.set_node_wifi_channel(radio_mac, wifi_channel)) {
             TASK_LOG(ERROR) << "set node wifi channel failed, mac=" << radio_mac;
@@ -829,10 +847,20 @@ void channel_selection_task::work()
                        << " bandwidth = " << int(csa_event->cs_params.bandwidth)
                        << " channel = " << int(csa_event->cs_params.channel)
                        << " channel_ext_above_primary = "
-                       << int(csa_event->cs_params.channel_ext_above_primary);
+                       << int(csa_event->cs_params.channel_ext_above_primary)
+                       << " vht_center_frequency = "
+                       << uint32_t(csa_event->cs_params.vht_center_frequency);
+        beerocks::WifiChannel wifi_channel;
+        auto freq_center = csa_event->cs_params.vht_center_frequency;
+#if defined(MORSE_MICRO)
+        auto is_s1g = wireless_utils::is_bandwidth_s1g(static_cast<beerocks::eWiFiBandwidth>(csa_event->cs_params.bandwidth));
+#else
         auto freq = wireless_utils::channel_to_freq(
             csa_event->cs_params.channel,
             wireless_utils::which_freq_type(csa_event->cs_params.vht_center_frequency));
+        auto channel_ext_above_secondary =
+            (freq < csa_event->cs_params.vht_center_frequency) ? true : false;
+#endif
 
         auto prev_wifi_channel = database.get_node_wifi_channel(tlvf::mac_to_string(radio_mac));
         if (prev_wifi_channel.is_empty()) {
@@ -842,13 +870,25 @@ void channel_selection_task::work()
         auto prev_vht_center_frequency = prev_wifi_channel.get_center_frequency();
         auto prev_channel              = prev_wifi_channel.get_channel();
         auto prev_bandwidth            = prev_wifi_channel.get_bandwidth();
-        auto channel_ext_above_secondary =
-            (freq < csa_event->cs_params.vht_center_frequency) ? true : false;
-
-        beerocks::WifiChannel wifi_channel = beerocks::WifiChannel(
-            csa_event->cs_params.channel, csa_event->cs_params.vht_center_frequency,
-            static_cast<beerocks::eWiFiBandwidth>(csa_event->cs_params.bandwidth),
-            channel_ext_above_secondary);
+#if defined(MORSE_MICRO)
+        if (csa_event->cs_params.s1g_freq) {
+            TASK_LOG(INFO) << "s1g_freq = " << csa_event->cs_params.s1g_freq;
+            if (!database.set_node_s1g_op_class_and_freq(radio_mac, csa_event->cs_params.s1g_op_class,
+                                                         csa_event->cs_params.s1g_freq)) {
+                TASK_LOG(ERROR) << "set node s1g op class failed, mac=" << radio_mac;
+            }
+        }
+        if (is_s1g)
+            wifi_channel = beerocks::WifiChannel(
+                csa_event->cs_params.channel, freq_center, csa_event->cs_params.s1g_freq,
+                static_cast<beerocks::eWiFiBandwidth>(csa_event->cs_params.bandwidth));
+        else
+#else
+            wifi_channel = beerocks::WifiChannel(
+                csa_event->cs_params.channel, csa_event->cs_params.vht_center_frequency,
+                static_cast<beerocks::eWiFiBandwidth>(csa_event->cs_params.bandwidth),
+                channel_ext_above_secondary);
+#endif
 
         if (!database.set_node_wifi_channel(radio_mac, wifi_channel)) {
             TASK_LOG(ERROR) << "set node wifi channel failed, mac=" << radio_mac;
@@ -1247,6 +1287,15 @@ void channel_selection_task::ccl_fill_supported_channels()
             cc.disallow          = false;
             ccl.insert({hostap_channel.get_channel(), cc});
         }
+#if defined(MORSE_MICRO)
+        if (hostap_channel.get_bandwidth() >= beerocks::BANDWIDTH_1 && hostap_channel.get_channel() > 0) {
+            sCandidateChannel cc;
+            cc.primary_channel   = 0;
+            cc.secondary_channel = 0;
+            cc.disallow          = false;
+            ccl.insert({hostap_channel.get_channel(), cc});
+        }
+#endif
     }
 }
 
@@ -1282,6 +1331,11 @@ void channel_selection_task::ccl_fill_active_channels()
             continue;
         }
         TASK_LOG(DEBUG) << "hostap=" << hostap << " " << wifi_channel;
+#if defined(MORSE_MICRO)
+        if (wifi_channel.get_freq_type() == eFreqType::FREQ_S1G) {
+            continue;
+        }
+#endif
 
         // add active hostap channels to ccl
         auto channel_list_20MHz = son::wireless_utils::split_channel_to_20MHz(wifi_channel);

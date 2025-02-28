@@ -72,6 +72,10 @@ public:
     beerocks::message::sRadioCapabilities m_sta_24ghz_capabilities;
 
     bool channel_ext_above_secondary = true;
+#if defined(MORSE_MICRO)
+    uint8_t s1g_op_class;
+    float s1g_freq;
+#endif
 
     beerocks::eNodeState state = beerocks::STATE_DISCONNECTED;
 

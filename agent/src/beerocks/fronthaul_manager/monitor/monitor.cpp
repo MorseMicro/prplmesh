@@ -1243,6 +1243,8 @@ void Monitor::handle_cmdu_vs_message(ieee1905_1::CmduMessageRx &cmdu_rx)
             LOG(ERROR) << "sta " << sta_mac << " hasn't been found on mon_db";
             return;
         }
+        LOG(TRACE) << "mac=" << sta_mac << " New IP=" << sta_ipv4
+                   << " old IP=" << sta_node->get_ipv4();
         sta_node->set_ipv4(sta_ipv4);
         break;
     }
@@ -2101,8 +2103,6 @@ bool Monitor::hal_event_handler(bwl::base_wlan_hal::hal_event_ptr_t event_ptr)
         auto sta_mac = tlvf::mac_to_string(msg->mac);
         auto vap_id  = msg->vap_id;
 
-        LOG(INFO) << "STA_Connected: mac=" << sta_mac << " vap_id=" << int(vap_id);
-
         std::string sta_ipv4             = beerocks::net::network_utils::ZERO_IP_STRING;
         std::string set_bridge_4addr_mac = beerocks::net::network_utils::ZERO_MAC_STRING;
 
@@ -2123,6 +2123,9 @@ bool Monitor::hal_event_handler(bwl::base_wlan_hal::hal_event_ptr_t event_ptr)
         auto sta_node = mon_db.sta_add(sta_mac, vap_id);
         sta_node->set_ipv4(sta_ipv4);
         sta_node->set_bridge_4addr_mac(set_bridge_4addr_mac);
+
+        LOG(INFO) << "STA_Connected: mac=" << sta_mac << " vap_id=" << int(vap_id)
+                  << " IP=" << sta_ipv4;
 
 #ifdef FEATURE_PRE_ASSOCIATION_STEERING
         sta_node->set_measure_sta_enable(true);

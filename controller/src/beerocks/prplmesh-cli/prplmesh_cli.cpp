@@ -20,6 +20,59 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 
+#if defined(MORSE_MICRO)
+struct s1g_freq_map {
+    int s1g_bw;
+    std::set<uint8_t> channels;
+    std::set<float> freq;
+};
+
+const std::map<uint8_t, struct s1g_freq_map> op_class_freq_chan_map = {
+//  {op class, {bandwidth, {channels}, {frequencies}}}
+    // EU, SG, IN
+    {66, {1, {1, 3, 5, 7, 9, 11},                                 {863.5, 864.5, 865.5, 866.5, 867.5, 868.5}}},
+    // SG
+    {67, {2, {10},                                                {868}}},
+    // AU, NZ, US, SG
+    {68, {1, {1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47, 49, 51}, {902.5, 903.5, 904.5, 905.5, 906.5, 907.5, 908.5, 909.5, 910.5, 911.5, 912.5, 913.5, 914.5, 915.5, 916.5, 917.5, 918.5, 919.5, 920.5, 921.5, 922.5, 923.5, 924.5, 925.5, 926.5, 927.5}}},
+    {69, {2, {2, 6 , 10, 14, 18, 22, 26, 30, 34, 38, 42, 46, 50}, {904, 906, 908, 910, 912, 914, 916, 918, 920, 922, 924, 926, 928}}},
+    {70, {4, {8, 16, 24, 32, 40, 48},                             {906, 910, 914, 918, 922, 926}}},
+    {71, {8, {12, 28, 44},                                        {908, 916, 924}}},
+    // JP
+    {73, {1, {13, 15, 17, 19, 21},                                {923, 924, 925, 926, 927}}},
+    // KR
+    {74, {1, {1, 3, 5, 7, 9, 11},                                 {918, 919, 920, 921, 922, 923}}},
+    {75, {2, {2, 6, 10},                                          {918.5, 920.5, 922.5}}},
+    {76, {4, {8},                                                 {921.5}}},
+    // EU
+    {77, {1, {31, 33, 35},                                        {916.9, 917.9, 918.9}}},
+};
+
+static float get_s1g_freq_from_chan_and_class(uint8_t channel, uint8_t op_class, int &bw)
+{
+    auto chan_freq_map = op_class_freq_chan_map.find(op_class);
+    if (chan_freq_map == op_class_freq_chan_map.end()) {
+        return 0;
+    }
+
+    auto chan_map = chan_freq_map->second.channels;
+    auto freq_map = chan_freq_map->second.freq;
+    bw = chan_freq_map->second.s1g_bw;
+    int idx = 0;
+
+    for(auto ch: chan_map) {
+        if (ch == channel) {
+            std::set<float>::iterator freq_map_it = freq_map.begin();
+            std::advance(freq_map_it, idx);
+            float freq = *freq_map_it;
+            return freq;
+        }
+        idx++;
+    }
+    return 0;
+}
+#endif
+
 namespace beerocks {
 namespace prplmesh_api {
 
@@ -137,45 +190,61 @@ bool prplmesh_cli::print_radio(std::string device_path)
         conn_map.radio_id         = GET_CHAR(radio_obj, "ID");
         conn_map.channel          = GET_UINT32(op_class_obj, "Channel");
         conn_map.oper_class       = GET_UINT32(op_class_obj, "Class");
+#if defined(MORSE_MICRO)
+        int bw                    = 0;
+        float freq                = get_s1g_freq_from_chan_and_class(conn_map.channel, conn_map.oper_class, bw);
+        bool enabled              = GET_BOOL(radio_obj, "Enabled");
+        std::cout << space << "\tRADIO[" << radio_index << "]: mac: " << conn_map.radio_id
+                  << ", Status: " << (enabled ? "Active" : "Inactive")
+                  << ", ch: " << conn_map.channel << ", freq: " << freq << "MHz" << ", bw: "
+                  << bw << " Mhz" <<std::endl;
+#else
         float freq                = get_freq_from_class(conn_map.oper_class);
 
         // RADIO: wlan1-1 mac: 06:f0:21:90:d7:4b, ch: 1, bw: 20, freq: 2412MHz
         std::cout << space << "\tRADIO[" << radio_index << "]: mac: " << conn_map.radio_id
                   << ", ch: " << conn_map.channel << ", freq: " << freq << "GHz" << std::endl;
+#endif
 
-        std::string bss_ht_path     = radio_path_i + "BSS.*.";
-        const amxc_htable_t *ht_bss = m_amx_client->get_htable_object(bss_ht_path);
-        int vap_index               = 0;
+#if defined(MORSE_MICRO)
+        if(enabled) {
+#endif
+            std::string bss_ht_path     = radio_path_i + "BSS.*.";
+            const amxc_htable_t *ht_bss = m_amx_client->get_htable_object(bss_ht_path);
+            int vap_index               = 0;
 
-        amxc_htable_iterate(bss_it, ht_bss)
-        {
-            const char *bss_key    = amxc_htable_it_get_key(bss_it);
-            std::string bss_path_i = std::string(bss_key);
-            amxc_var_t *bss_obj    = amxc_var_from_htable_it(bss_it);
-            conn_map.bss_id        = GET_CHAR(bss_obj, "BSSID");
-            conn_map.ssid          = GET_CHAR(bss_obj, "SSID");
-
-            // VAP[0]: wlan1-1.0 bssid: 02:f0:21:90:d7:4b, ssid: prplmesh
-            std::cout << space << "\t\tVAP[" << vap_index << "]: bssid: " << conn_map.bss_id
-                      << ", ssid: " << conn_map.ssid << std::endl;
-
-            std::string sta_ht_path     = bss_path_i + "STA.*.";
-            const amxc_htable_t *ht_sta = m_amx_client->get_htable_object(sta_ht_path);
-            int sta_index               = 1;
-            amxc_htable_iterate(sta_it, ht_sta)
+            amxc_htable_iterate(bss_it, ht_bss)
             {
-                amxc_var_t *sta_obj      = amxc_var_from_htable_it(sta_it);
-                std::string sta_mac      = GET_CHAR(sta_obj, "MACAddress");
-                std::string sta_hostname = GET_CHAR(sta_obj, "Hostname");
-                std::string sta_ipv4     = GET_CHAR(sta_obj, "IPV4Address");
+                const char *bss_key    = amxc_htable_it_get_key(bss_it);
+                std::string bss_path_i = std::string(bss_key);
+                amxc_var_t *bss_obj    = amxc_var_from_htable_it(bss_it);
+                conn_map.bss_id        = GET_CHAR(bss_obj, "BSSID");
+                conn_map.ssid          = GET_CHAR(bss_obj, "SSID");
 
-                std::cout << space << "\t\t\tCLIENT[" << sta_index << "]: name: " << sta_hostname
-                          << " mac: " << sta_mac << " ipv4: " << sta_ipv4 << std::endl;
-                sta_index++;
+                // VAP[0]: wlan1-1.0 bssid: 02:f0:21:90:d7:4b, ssid: prplmesh
+                std::cout << space << "\t\tVAP[" << vap_index << "]: bssid: " << conn_map.bss_id
+                          << ", ssid: " << conn_map.ssid << std::endl;
+
+                std::string sta_ht_path     = bss_path_i + "STA.*.";
+                const amxc_htable_t *ht_sta = m_amx_client->get_htable_object(sta_ht_path);
+                int sta_index               = 1;
+                amxc_htable_iterate(sta_it, ht_sta)
+                {
+                    amxc_var_t *sta_obj      = amxc_var_from_htable_it(sta_it);
+                    std::string sta_mac      = GET_CHAR(sta_obj, "MACAddress");
+                    std::string sta_hostname = GET_CHAR(sta_obj, "Hostname");
+                    std::string sta_ipv4     = GET_CHAR(sta_obj, "IPV4Address");
+
+                    std::cout << space << "\t\t\tCLIENT[" << sta_index << "]: name: " << sta_hostname
+                              << " mac: " << sta_mac << " ipv4: " << sta_ipv4 << std::endl;
+                    sta_index++;
+                }
+                vap_index++;
             }
-            vap_index++;
+            radio_index++;
+#if defined(MORSE_MICRO)
         }
-        radio_index++;
+#endif
     }
     return true;
 }
@@ -242,7 +311,11 @@ bool prplmesh_cli::prpl_conn_map()
     std::cout << "Found " << conn_map.device_number << " devices" << std::endl;
 
     // Need to change br-lan to variable which depends on platform(rdkb/prplos)
+#if !defined(MORSE_MICRO)
     if (!prplmesh_cli::get_ip_from_iface("br-lan", conn_map.bridge_ip_v4)) {
+#else
+    if (!prplmesh_cli::get_ip_from_iface("br0", conn_map.bridge_ip_v4)) {
+#endif
         LOG(ERROR) << "Can't get bridge ip.";
     }
 

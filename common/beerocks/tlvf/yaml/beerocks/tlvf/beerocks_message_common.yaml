@@ -102,6 +102,8 @@ sApChannelSwitch:
   csa_count: 
     _type: uint8_t
     _value: 5
+  s1g_op_class: uint8_t
+  s1g_freq: int32_t
 
 sDfsCacCompleted:
   _type: struct

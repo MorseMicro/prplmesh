@@ -341,6 +341,9 @@ std::ptrdiff_t network_map::fill_bml_node_data(db &database, std::shared_ptr<nod
                 node->data.gw_ire.radio[i].channel_ext_above_secondary =
                     c->wifi_channel.get_ext_above_secondary();
                 node->data.gw_ire.radio[i].ap_active = r->active;
+#if defined(MORSE_MICRO)
+                node->data.gw_ire.radio[i].s1g_freq = c->s1g_freq;
+#endif
 
                 // Copy the radio identifier string
                 tlvf::mac_from_string(node->data.gw_ire.radio[i].radio_identifier, c->mac);

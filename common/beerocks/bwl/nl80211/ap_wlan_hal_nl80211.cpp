@@ -125,11 +125,25 @@ static uint8_t wpa_bw_to_beerocks_bw(const std::string &chan_width)
 static prplmesh::hostapd::Configuration load_hostapd_config(const std::string &radio_iface_name)
 {
     std::vector<std::string> hostapd_cfg_names = {
-        "/tmp/run/hostapd-phy0.conf", "/tmp/run/hostapd-phy1.conf", "/var/run/hostapd-phy0.conf",
-        "/var/run/hostapd-phy1.conf", "/var/run/hostapd-phy2.conf", "/var/run/hostapd-phy3.conf",
-        "/nvram/hostapd0.conf",       "/nvram/hostapd1.conf",       "/nvram/hostapd2.conf",
-        "/nvram/hostapd3.conf",       "/nvram/hostapd4.conf",       "/nvram/hostapd5.conf",
-        "/nvram/hostapd6.conf",       "/nvram/hostapd7.conf"};
+#if !defined MORSE_MICRO
+        "/tmp/run/hostapd-phy0.conf",
+        "/tmp/run/hostapd-phy1.conf",
+        "/var/run/hostapd-phy0.conf",
+        "/var/run/hostapd-phy1.conf",
+        "/var/run/hostapd-phy2.conf",
+        "/var/run/hostapd-phy3.conf",
+        "/nvram/hostapd0.conf",
+        "/nvram/hostapd1.conf",
+        "/nvram/hostapd2.conf",
+        "/nvram/hostapd3.conf",
+        "/nvram/hostapd4.conf",
+        "/nvram/hostapd5.conf",
+        "/nvram/hostapd6.conf",
+        "/nvram/hostapd7.conf"
+#else
+        "/var/morse/hostapd_s1g_multiap.conf",
+#endif
+    };
 
     for (const auto &try_fname : hostapd_cfg_names) {
         LOG(DEBUG) << "Trying to load " << try_fname << "...";
@@ -387,6 +401,28 @@ bool ap_wlan_hal_nl80211::refresh_radio_info()
         return false;
     }
 
+#if defined(MORSE_MICRO)
+    prplmesh::hostapd::Configuration conf = load_hostapd_config(m_radio_info.iface_name);
+    if (!conf) {
+        LOG(ERROR) << "Unable to load hostapd config for interface " << m_radio_info.iface_name;
+        return false;
+    }
+
+    auto ah_mode     = conf.get_head_value("ieee80211ah");
+    auto country     = conf.get_head_value("country_code");
+    auto op_class    = conf.get_head_value("op_class");
+    auto s1g_channel = conf.get_head_value("channel");
+
+    if (!country.empty()) {
+        m_radio_info.s1g_country = country;
+        son::wireless_utils::set_s1g_ht_chan_pairs(country);
+    }
+
+    LOG(DEBUG) << "Detected s1g parameters:-"
+               << "\nah_mode:" << ah_mode << "\ncounty:" << country << "\nop_class:" << op_class
+               << "\ns1g_channel:" << s1g_channel << ", " << m_radio_info.frequency_band;
+#endif
+
     if (m_radio_info.frequency_band == beerocks::eFreqType::FREQ_UNKNOWN) {
 
         if (radio_info.bands.size() == 1) {
@@ -445,6 +481,10 @@ bool ap_wlan_hal_nl80211::refresh_radio_info()
                     m_radio_info.frequency_band = beerocks::eFreqType::FREQ_5G;
                 } else if (band == "6g") {
                     m_radio_info.frequency_band = beerocks::eFreqType::FREQ_6G;
+#if defined(MORSE_MICRO)
+                } else if (band == "s1g") {
+                    m_radio_info.frequency_band = beerocks::eFreqType::FREQ_S1G;
+#endif
                 } else {
                     LOG(ERROR) << "Unknown operation mode for interface "
                                << m_radio_info.iface_name;
@@ -496,7 +536,11 @@ bool ap_wlan_hal_nl80211::refresh_radio_info()
             }
         }
     }
-
+#if defined(MORSE_MICRO)
+    // As the now get the channel info from the NL80211 interface we need to set the freq_band to 5G
+    // before checking the band. Otherwise it will not be able to get the correct radio info
+    m_radio_info.frequency_band = beerocks::eFreqType::FREQ_5G;
+#endif
     if (radio_info.bands.begin()->supported_channels.empty()) {
         LOG(ERROR) << "Supported channels map is empty";
         return false;
@@ -525,21 +569,53 @@ bool ap_wlan_hal_nl80211::refresh_radio_info()
 
         for (auto const &pair : band_info_it->supported_channels) {
             auto &supported_channel_info = pair.second;
-            auto &channel_info        = m_radio_info.channels_list[supported_channel_info.number];
+#if defined(MORSE_MICRO)
+            auto &channel_info =
+                m_radio_info.channels_list[son::wireless_utils::convert_ht_chan_to_s1g_chan(
+                                               supported_channel_info.number)
+                                               .s1g_channel];
+#else
+            auto &channel_info = m_radio_info.channels_list[supported_channel_info.number];
+#endif
             channel_info.tx_power_dbm = supported_channel_info.tx_power;
             channel_info.dfs_state    = supported_channel_info.is_dfs
-                                         ? supported_channel_info.dfs_state
-                                         : beerocks::eDfsState::DFS_STATE_MAX;
+                                            ? supported_channel_info.dfs_state
+                                            : beerocks::eDfsState::DFS_STATE_MAX;
 
+#if defined(MORSE_MICRO)
+            if (ah_mode == "1") {
+                channel_info.bw_info_list[beerocks::utils::convert_bandwidth_to_enum(
+                    son::wireless_utils::convert_ht_chan_to_s1g_chan(supported_channel_info.number)
+                        .bw)] = 1;
+            } else {
+                for (auto bw : supported_channel_info.supported_bandwidths) {
+                    // Since bwl nl8011 does not support ranking, set all ranking to highest rank (1).
+                    channel_info.bw_info_list[bw] = 1;
+                }
+            }
+#else
             for (auto bw : supported_channel_info.supported_bandwidths) {
                 // Since bwl nl8011 does not support ranking, set all ranking to highest rank (1).
                 channel_info.bw_info_list[bw] = 1;
             }
+#endif
         }
     } else {
         LOG(ERROR) << "Failed to find a band that matches the frequency band of the radio info";
         return false;
     }
+
+#if defined(MORSE_MICRO)
+    if (ah_mode == "1") {
+        m_radio_info.channel        = beerocks::string_utils::stoi(s1g_channel);
+        m_radio_info.s1g_op_class   = beerocks::string_utils::stoi(op_class);
+        m_radio_info.frequency_band = beerocks::eFreqType::FREQ_S1G;
+        LOG(DEBUG) << "Refresh Radio Info parameters:-"
+                   << "\ncounty:" << country << "\nop_class:" << m_radio_info.s1g_op_class
+                   << "\ns1g_channel:" << m_radio_info.channel << ", "
+                   << m_radio_info.frequency_band;
+    }
+#endif
 
     return base_wlan_hal_nl80211::refresh_radio_info();
 } // namespace nl80211
@@ -583,6 +659,20 @@ bool ap_wlan_hal_nl80211::set_channel(int chan, beerocks::eWiFiBandwidth bw, int
         LOG(ERROR) << "Unable to load hostapd config for interface " << m_radio_info.iface_name;
         return false;
     }
+#if defined(MORSE_MICRO)
+    // Update hostapd config much before as we dont want the vht prams to get set
+    auto ah_mode = conf.get_head_value("ieee80211ah");
+    if (ah_mode == "1") {
+        const std::string cmd("UPDATE ");
+        if (!wpa_ctrl_send_msg(cmd)) {
+            LOG(ERROR) << "'" << cmd << "' command to hostapd failed";
+            return false;
+        }
+        LOG(DEBUG) << "set_channel done";
+
+        return true;
+    }
+#endif
 
     std::string chan_string = std::to_string(chan);
 
@@ -940,6 +1030,12 @@ bool ap_wlan_hal_nl80211::update_vap_credentials(
         // escape III
         std::string bss   = conf.get_vap_value(vap_id, "bss"),
                     bssid = conf.get_vap_value(vap_id, "bssid");
+#if defined(MORSE_MICRO)
+        // Check interface=value in hostapd.conf if bss value is missing.
+        if (bss.empty()) {
+            bss = conf.get_vap_value(vap_id, "interface");
+        }
+#endif
         // check explicit bssid value only in case of Multiple BSSID support
         if ((!bss.empty()) && bssid.empty()) {
             LOG(ERROR) << "Failed to get BSSID for vap: " << vap_id;
@@ -1294,18 +1390,306 @@ bool ap_wlan_hal_nl80211::get_vap_enable(const std::string &iface_name, bool &en
     return true;
 }
 
+#if defined(MORSE_MICRO)
+static std::shared_ptr<char>
+generate_client_assoc_event(base_wlan_hal_nl80211::parsed_obj_map_t &reply, int vap_id,
+                            bool radio_5G)
+{
+    auto msg_buff = ALLOC_SMART_BUFFER(sizeof(sACTION_APMANAGER_CLIENT_ASSOCIATED_NOTIFICATION));
+    auto msg = reinterpret_cast<sACTION_APMANAGER_CLIENT_ASSOCIATED_NOTIFICATION *>(msg_buff.get());
+    int supported_rates[16] = {0};
+    int HT_MCS[16]          = {0};
+    int16_t VHT_MCS[1]      = {0};
+    char ht_mcs[64]         = {0};
+    char vht_mcs[24]        = {0};
+    uint32_t i              = 0;
+    uint8_t j               = 0;
+
+    if (!msg) {
+        LOG(TRACE) << __func__ << "Memory allocation failed!";
+        return NULL;
+    }
+
+    // Initialize the message
+    memset(msg_buff.get(), 0, sizeof(sACTION_APMANAGER_CLIENT_ASSOCIATED_NOTIFICATION));
+    memset((char *)&msg->params.capabilities, 0, sizeof(msg->params.capabilities));
+
+    uint64_t conn_time = beerocks::string_utils::stoi(reply["connected_time"]);
+    if (!conn_time) {
+        LOG(TRACE) << __func__ << ": Connection time zero";
+        return NULL;
+    }
+
+    // example: supported_rates=02 04 0b 8c 16 98 24 b0
+    while (i < reply["supported_rates"].length()) {
+        supported_rates[j++] = std::strtoul(reply["supported_rates"].c_str() + i, nullptr, 16);
+        //Move to next rate, count for space between rates.
+        i = i + 3;
+    }
+
+    uint16_t temp_rate = 0;
+    uint16_t max_rate  = 0;
+
+    for (int i = 0; i < SUPPORTED_RATES_MAX; i++) {
+        temp_rate = (supported_rates[i] & SUPPORTED_RATE_MASK) * 5; // rate/2 * 10
+
+        if (temp_rate > max_rate) {
+            max_rate = temp_rate;
+        }
+    }
+
+    uint16_t capab  = std::strtoul(reply["capability"].c_str(), nullptr, 16);
+    uint8_t extcap3 = std::strtoul(reply["ext_capab"].c_str() + 2, nullptr, 16);
+
+#if defined(__LITTLE_ENDIAN_BITFIELD)
+    /* Bit 3 of extendes capabilities indicates 11v BTM capability */
+    msg->params.capabilities.btm_supported = extcap3 & BIT(3) ? 1 : 0;
+    /* Enable Beacon measurement if RM is enabled (BIT 12) in capabilities
+     * as the sta information not having RRM Capability IE.
+     */
+    if (capab & BIT(12)) {
+        msg->params.capabilities.link_meas             = 1;
+        msg->params.capabilities.beacon_report_active  = 1;
+        msg->params.capabilities.beacon_report_passive = 1;
+        msg->params.capabilities.beacon_report_table   = 1;
+    }
+#elif defined(__BIG_ENDIAN_BITFIELD)
+    msg->params.capabilities.btm_supported = extcap3 & BIT(4) ? 1 : 0;
+    if (capab & BIT(3)) {
+        msg->params.capabilities.link_meas             = 1;
+        msg->params.capabilities.beacon_report_active  = 1;
+        msg->params.capabilities.beacon_report_passive = 1;
+        msg->params.capabilities.beacon_report_table   = 1;
+    }
+#endif
+
+    if (son::wireless_utils::get_mcs_from_rate(
+            max_rate, beerocks::ANT_MODE_1X1_SS1, beerocks::BANDWIDTH_20,
+            msg->params.capabilities.default_mcs, msg->params.capabilities.default_short_gi)) {
+        LOG(DEBUG) << "get_mcs_from_rate() | MCS rate match";
+    } else {
+        LOG(DEBUG) << "get_mcs_from_rate() | no MCS rate match --> using nearest value";
+    }
+
+    std::string ht_mcs_str("0x00");
+    std::string vht_mcs_str("0x0000");
+
+    memcpy(ht_mcs, reply["ht_mcs_bitmask"].c_str(), reply["ht_mcs_bitmask"].length());
+    memcpy(vht_mcs, reply["rx_vht_mcs_map"].c_str(), reply["rx_vht_mcs_map"].length());
+    // convert string to vector: ht_mcs "ffff0000000000000000" -> HT_MCS {0xFF, 0xFF, 0x00, ...}
+    for (uint i = 0; (i < HT_MCS_RATES_MAX) && (i < sizeof(ht_mcs)); i++) {
+        ht_mcs_str[2] = ht_mcs[2 * i];
+        ht_mcs_str[3] = ht_mcs[2 * i + 1];
+        HT_MCS[i]     = std::strtoul(ht_mcs_str.c_str(), nullptr, 16);
+    }
+
+    vht_mcs_str[2] = vht_mcs[0];
+    vht_mcs_str[3] = vht_mcs[1];
+    vht_mcs_str[4] = vht_mcs[2];
+    vht_mcs_str[5] = vht_mcs[3];
+    VHT_MCS[0]     = std::strtoul(vht_mcs_str.c_str(), nullptr, 16);
+
+    if (!reply["ht_caps_info"].empty()) {
+        uint16_t ht_caps = uint16_t(std::strtoul(reply["ht_caps_info"].c_str(), nullptr, 16));
+        if (ht_caps & HT_CAP_INFO_SUPP_CHANNEL_WIDTH_SET) {
+            msg->params.capabilities.ht_bw = beerocks::BANDWIDTH_40;
+        } else {
+            msg->params.capabilities.ht_bw = beerocks::BANDWIDTH_20;
+        }
+
+        msg->params.capabilities.ht_sm_power_save = ((ht_caps & HT_CAP_INFO_SMPS_MASK) >> 2) & 0x03;
+        msg->params.capabilities.ht_low_bw_short_gi  = (ht_caps & HT_CAP_INFO_SHORT_GI20MHZ) != 0;
+        msg->params.capabilities.ht_high_bw_short_gi = (ht_caps & HT_CAP_INFO_SHORT_GI40MHZ) != 0;
+
+        // parsing HT_MCS {AA, BB, CC, DD, XX, ...} to 0xDDCCBBAA
+        uint32_t ht_mcs       = 0;
+        bool break_upper_loop = false;
+
+        msg->params.capabilities.ant_num = 1;
+        for (uint8_t i = 0; i < 4; i++) {
+            ht_mcs |= HT_MCS[i] << (8 * i);
+        }
+
+        uint32_t mask = pow(2, 4 * 8 - 1); // 0x80000000
+
+        for (uint8_t i = 4; i > 0; i--) {     // 4ss
+            for (int8_t j = 7; j >= 0; j--) { // 8bits
+                if ((ht_mcs & mask) > 0) {
+                    msg->params.capabilities.ht_ss   = i;
+                    msg->params.capabilities.ant_num = i;
+                    msg->params.capabilities.ht_mcs  = j;
+                    break_upper_loop                 = true;
+                    break;
+                }
+                mask /= 2;
+            }
+            if (break_upper_loop) {
+                break;
+            }
+        }
+    }
+
+    if (!reply["vht_caps_info"].empty()) {
+        uint16_t vht_caps = uint16_t(std::strtoul(reply["vht_caps_info"].c_str(), nullptr, 16));
+        uint8_t supported_bandwidth = (vht_caps >> 2) & 0x03;
+
+        if (supported_bandwidth == 0) {
+            msg->params.capabilities.vht_bw = beerocks::BANDWIDTH_80;
+        } else {
+            msg->params.capabilities.vht_bw = beerocks::BANDWIDTH_160;
+        }
+        msg->params.capabilities.vht_low_bw_short_gi  = (vht_caps >> 5) & 0x01;
+        msg->params.capabilities.vht_high_bw_short_gi = (vht_caps >> 6) & 0x01;
+        msg->params.capabilities.vht_su_beamformer    = (vht_caps >> 11) & 0x01;
+        msg->params.capabilities.vht_mu_beamformer    = (vht_caps >> 19) & 0x01;
+
+        uint16_t vht_mcs_rx = 0;
+        uint16_t vht_mcs_temp;
+
+        vht_mcs_rx = VHT_MCS[0];
+
+        for (uint8_t i = 4; i > 0; i--) { // Max 4 Spatial streams
+            vht_mcs_temp = (vht_mcs_rx >> (2 * (i - 1))) & 0x03;
+            // 0 indicates support for VHT-MCS 0-7 for n spatial streams
+            // 1 indicates support for VHT-MCS 0-8 for n spatial streams
+            // 2 indicates support for VHT-MCS 0-9 for n spatial streams
+            // 3 indicates that n spatial streams is not supported
+            if (vht_mcs_temp != 0x3) { //0x3 == not supported
+                msg->params.capabilities.vht_ss  = i;
+                msg->params.capabilities.ant_num = i;
+                msg->params.capabilities.vht_mcs = vht_mcs_temp + 7;
+                break;
+            }
+        }
+    }
+
+    // update standard
+    if (msg->params.capabilities.vht_ss) {
+        msg->params.capabilities.wifi_standard = STANDARD_AC;
+    }
+    if (msg->params.capabilities.ht_ss) {
+        msg->params.capabilities.wifi_standard |= STANDARD_N;
+        msg->params.capabilities.band_5g_capable = 1;
+        msg->params.capabilities.wifi_standard |= STANDARD_A;
+    }
+
+    msg->params.vap_id = vap_id;
+    msg->params.mac    = tlvf::mac_from_string(reply["dot11RSNAStatsSTAAddress"]);
+    LOG(TRACE) << "mac=" << msg->params.mac << " vap_id=" << msg->params.vap_id;
+
+    son::wireless_utils::print_station_capabilities(msg->params.capabilities);
+    return msg_buff;
+}
+#endif
+
 bool ap_wlan_hal_nl80211::generate_connected_clients_events(
     bool &is_finished_all_clients, std::chrono::steady_clock::time_point max_iteration_timeout)
 {
+#if defined(MORSE_MICRO)
+    std::string iface_name = get_iface_name();
+    std::string cmd;
+    parsed_obj_map_t reply;
+    int connected_time = 0;
+    std::string mac_addr;
+
+    if (iface_name.empty()) {
+        LOG(TRACE) << __func__ << ": Empty interface name";
+        return false;
+    }
+
+    LOG(TRACE) << __func__ << " entered for " << iface_name;
+
+    while (true) {
+        // if thread awake time is too long - return false (means there is more handling to be done on next wake-up)
+        if (std::chrono::steady_clock::now() > max_iteration_timeout) {
+            LOG(DEBUG)
+                << "Thread is awake too long - will continue on next wakeup, last handled sta:"
+                << m_prev_client_mac;
+            is_finished_all_clients = false;
+            return true;
+        }
+        reply.clear();
+
+        if (!m_queried_first) {
+            cmd = "STA-FIRST";
+        } else {
+            cmd = "STA-NEXT " + tlvf::mac_to_string(m_prev_client_mac);
+        }
+
+        if (!wpa_ctrl_send_msg(cmd, reply, iface_name)) {
+            LOG(ERROR) << cmd << " for " << iface_name << " failed";
+            if (m_queried_first) {
+                m_queried_first   = false;
+                m_prev_client_mac = beerocks::net::network_utils::ZERO_MAC;
+                return true;
+            }
+            // Failure on the first client for that VAP is certainly an error
+            return false;
+        }
+
+        m_queried_first = true;
+        if (reply.empty()) {
+            LOG(TRACE) << "cmd=" << cmd << " returned empty, reply=" << reply;
+            break;
+        }
+
+        std::string reply_str;
+        for (const auto &entry : reply) {
+            if (!reply_str.empty()) {
+                reply_str += "\n";
+            }
+            reply_str += entry.first + "=" + entry.second;
+        }
+
+        connected_time = beerocks::string_utils::stoi(reply["connected_time"]);
+        mac_addr       = reply["dot11RSNAStatsSTAAddress"];
+
+        LOG(DEBUG) << cmd << " reply for " << iface_name << " = \n"
+                   << reply_str << "\n\nconnected_time=" << connected_time << ", mac=" << mac_addr;
+
+        auto msg_buff = generate_client_assoc_event(reply, get_vap_id_with_bss(iface_name),
+                                                    get_radio_info().is_5ghz);
+
+        if (!msg_buff) {
+            LOG(DEBUG) << "Failed to generate client association event from reply";
+            continue;
+        }
+        // update client mac
+        auto msg =
+            reinterpret_cast<sACTION_APMANAGER_CLIENT_ASSOCIATED_NOTIFICATION *>(msg_buff.get());
+        m_prev_client_mac = msg->params.mac;
+
+        if (m_handled_clients.find(m_prev_client_mac) != m_handled_clients.end()) {
+            LOG(DEBUG) << "already generated event for this client" << m_prev_client_mac;
+            continue;
+        }
+        // Add the message to the queue
+        m_handled_clients.insert(m_prev_client_mac);
+        event_queue_push(Event::STA_Connected, msg_buff);
+    }
+
+    m_prev_client_mac = beerocks::net::network_utils::ZERO_MAC;
+    m_handled_clients.clear();
+    m_queried_first                              = false;
+    connected_clients_events_generation_complete = true;
+    LOG(DEBUG) << "Finished to generate connected clients events for all clients";
+#else
     LOG(TRACE) << __func__ << " - NOT IMPLEMENTED!";
+#endif
     is_finished_all_clients = true;
     return true;
 }
 
 bool ap_wlan_hal_nl80211::pre_generate_connected_clients_events()
 {
-
+#if defined(MORSE_MICRO)
+    m_prev_client_mac = beerocks::net::network_utils::ZERO_MAC;
+    m_handled_clients.clear();
+    m_queried_first                              = false;
+    connected_clients_events_generation_complete = false;
+#else
     LOG(TRACE) << __func__ << " - NOT IMPLEMENTED!";
+#endif
     return true;
 }
 
@@ -1429,6 +1813,14 @@ bool ap_wlan_hal_nl80211::process_nl80211_event(parsed_obj_map_t &parsed_obj)
             son::wireless_utils::print_station_capabilities(msg->params.capabilities);
         }
 
+        LOG(WARNING) << "STA-CONNECTED = " << src_mac;
+#if defined(MORSE_MICRO)
+        // To prevent duplication of generation of connected event for clients,
+        // need to add associated clients to the "handled_clients" set
+        if (!connected_clients_events_generation_complete)
+            m_handled_clients.insert(msg->params.mac);
+#endif
+
         // Add the message to the queue
         event_queue_push(Event::STA_Connected, msg_buff);
 
@@ -1484,11 +1876,20 @@ bool ap_wlan_hal_nl80211::process_nl80211_event(parsed_obj_map_t &parsed_obj)
             return false;
         }
         std::string bssid = m_radio_info.available_vaps[vap_id].mac;
-
-        auto op_class = son::wireless_utils::get_operating_class_by_channel(
-            beerocks::WifiChannel(m_radio_info.channel, m_radio_info.vht_center_freq,
-                                  static_cast<beerocks::eWiFiBandwidth>(m_radio_info.bandwidth),
-                                  m_radio_info.channel_ext_above > 0 ? true : false));
+        int op_class      = 0;
+#if defined(MORSE_MICRO)
+        auto is_s1g = son::wireless_utils::is_bandwidth_s1g(
+            static_cast<beerocks::eWiFiBandwidth>(m_radio_info.bandwidth));
+        if (is_s1g)
+            op_class = son::wireless_utils::get_s1g_operating_class_by_channel(
+                m_radio_info.channel, static_cast<beerocks::eWiFiBandwidth>(m_radio_info.bandwidth),
+                beerocks::FREQ_S1G);
+        else
+#endif
+            op_class = son::wireless_utils::get_operating_class_by_channel(
+                beerocks::WifiChannel(m_radio_info.channel, m_radio_info.vht_center_freq,
+                                      static_cast<beerocks::eWiFiBandwidth>(m_radio_info.bandwidth),
+                                      m_radio_info.channel_ext_above > 0 ? true : false));
         // According to easymesh R2 specification when STA sends BSS_TM_QUERY
         // AP should respond with BSS_TM_REQ with at least one neighbor AP.
         // This commit adds the answer to the BSS_TM_QUERY. The answer adds only

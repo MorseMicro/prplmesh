@@ -107,6 +107,9 @@ BackhaulManager::BackhaulManager(const config_file::sConfigSlave &config,
     db->device_conf.ucc_listener_port = string_utils::stoi(config.ucc_listener_port);
     db->device_conf.vendor            = config.vendor;
     db->device_conf.model             = config.model;
+#if defined(MORSE_MICRO)
+    db->device_conf.wired_backhaul    = string_utils::stoi(config.wired_backhaul);
+#endif
 
     m_eFSMState = EState::INIT;
 
@@ -733,6 +736,9 @@ bool BackhaulManager::backhaul_fsm_main(bool &skip_select)
 
         // If a wired (WAN) interface was provided, try it first, check if the interface is UP
         wan_monitor::ELinkState wired_link_state = wan_monitor::ELinkState::eInvalid;
+#if defined(MORSE_MICRO)
+        if (db->device_conf.wired_backhaul) {
+#endif
         if (!db->device_conf.local_gw && !db->ethernet.wan.iface_name.empty()) {
             wired_link_state = wan_mon.initialize(db->ethernet.wan.iface_name);
             // Failure might be due to insufficient permissions, detailed error message is being
@@ -741,6 +747,9 @@ bool BackhaulManager::backhaul_fsm_main(bool &skip_select)
                 LOG(WARNING) << "wan_mon.initialize() failed, skip wired link establishment";
             }
         }
+#if defined(MORSE_MICRO)
+        }
+#endif
         if ((wired_link_state == wan_monitor::ELinkState::eUp) &&
             (m_selected_backhaul.empty() || m_selected_backhaul == DEV_SET_ETH)) {
 
@@ -1159,6 +1168,25 @@ bool BackhaulManager::backhaul_fsm_wireless(bool &skip_select)
                 continue;
             }
             if (!roam_flag && radio_info->sta_wlan_hal->is_connected()) {
+#if defined(MORSE_MICRO)
+                LOG(DEBUG) << "Already Connected, moving to CONNECTED STATE";
+
+                // Try adding wireless backhaul STA interface to the bridge in case there is no
+                // entity (hostapd) that adds it automaticaly.
+                auto bridge        = db->bridge.iface_name;
+                auto bridge_ifaces = beerocks::net::network_utils::linux_get_iface_list_from_bridge(bridge);
+                if (!beerocks::net::network_utils::linux_add_iface_to_bridge(bridge, iface)) {
+                    LOG(INFO) << "The wireless interface " << iface << " is already in the bridge";
+                }
+
+                db->backhaul.selected_iface_name = iface;
+                db->backhaul.connection_type     = AgentDB::sBackhaul::eConnectionType::Wireless;
+                roam_flag      = false;
+                state_attempts = 0;
+                // Send slave enable the AP's
+                send_slaves_enable();
+                FSM_MOVE_STATE(CONNECTED);
+#else
                 for (const auto &sta_iface : slave_sta_ifaces) {
                     auto sta_iface_hal = get_wireless_hal(sta_iface);
                     if (!sta_iface_hal) {
@@ -1166,6 +1194,7 @@ bool BackhaulManager::backhaul_fsm_wireless(bool &skip_select)
                     }
                     sta_iface_hal->reassociate();
                 }
+#endif
             }
         }
 
@@ -1550,7 +1579,9 @@ bool BackhaulManager::handle_slave_backhaul_message(int fd, ieee1905_1::CmduMess
                 radio_info->sta_iface       = radio->back.iface_name;
                 radio_info->primary_channel = radio->wifi_channel.get_channel();
 
-                LOG(DEBUG) << "Pushing new Radio";
+                LOG(DEBUG) << "Pushing new Radio" << radio_info->primary_channel
+                    << " STA iface name:" << radio_info->sta_iface
+                    << " AP iface name:" <<radio_info->hostap_iface;
                 m_radios_info.push_back(radio_info);
             } else {
                 radio_info = *found;
@@ -2035,6 +2066,9 @@ bool BackhaulManager::hal_event_handler(bwl::base_wlan_hal::hal_event_ptr_t even
                 FSM_MOVE_STATE(CONNECTED);
             } else {
                 FSM_MOVE_STATE(OPERATIONAL);
+#if defined(MORSE_MICRO)
+                finalize_slaves_connect_state(true);
+#endif
             }
         }
     } break;

@@ -17,13 +17,23 @@ set(BEEROCKS_OPERATING_MODE  "Gateway" CACHE STRING "Set operating mode")
 set(BEEROCKS_STOP_ON_FAILURE_ATTEMPTS  0 CACHE INT "In common config stop on failure disabled")
 set(BEEROCKS_CERTIFICATION_MODE  1 CACHE INT "In certification, agent must retry onboarding indefinitely")
 
-set(BEEROCKS_HOSTAP_WLAN1_CTRL_IFACE "/var/run/hostapd/${BEEROCKS_WLAN1_IFACE}" CACHE PATH "hostapd ctrl iface path for 1st WLAN")
-set(BEEROCKS_HOSTAP_WLAN2_CTRL_IFACE "/var/run/hostapd/${BEEROCKS_WLAN2_IFACE}" CACHE PATH "hostapd ctrl iface path for 2nd WLAN")
-set(BEEROCKS_HOSTAP_WLAN3_CTRL_IFACE "/var/run/hostapd/${BEEROCKS_WLAN3_IFACE}" CACHE PATH "hostapd ctrl iface path for 3rd WLAN")
+if (TARGET_PLATFORM STREQUAL "MorseMicro")
+    set(BEEROCKS_HOSTAP_WLAN1_CTRL_IFACE "/var/run/hostapd_s1g/${BEEROCKS_WLAN1_IFACE}" CACHE PATH "hostapd ctrl iface path for 1st WLAN")
+    set(BEEROCKS_HOSTAP_WLAN2_CTRL_IFACE "/var/run/hostapd_s1g/${BEEROCKS_WLAN2_IFACE}" CACHE PATH "hostapd ctrl iface path for 2nd WLAN")
+    set(BEEROCKS_HOSTAP_WLAN3_CTRL_IFACE "/var/run/hostapd_s1g/${BEEROCKS_WLAN3_IFACE}" CACHE PATH "hostapd ctrl iface path for 3rd WLAN")
 
-set(BEEROCKS_WPA_SUPPLICANT_WLAN1_CTRL_IFACE "/var/run/wpa_supplicant/${BEEROCKS_WLAN1_IFACE}" CACHE PATH "wpa_supplicant ctrl iface path for 1st WLAN")
-set(BEEROCKS_WPA_SUPPLICANT_WLAN2_CTRL_IFACE "/var/run/wpa_supplicant/${BEEROCKS_WLAN2_IFACE}" CACHE PATH "wpa_supplicant ctrl iface path for 2nd WLAN")
-set(BEEROCKS_WPA_SUPPLICANT_WLAN3_CTRL_IFACE "/var/run/wpa_supplicant/${BEEROCKS_WLAN3_IFACE}" CACHE PATH "wpa_supplicant ctrl iface path for 3rd WLAN")
+    set(BEEROCKS_WPA_SUPPLICANT_WLAN1_CTRL_IFACE "/var/run/wpa_supplicant_s1g/${BEEROCKS_WLAN1_IFACE}" CACHE PATH "wpa_supplicant ctrl iface path for 1st WLAN")
+    set(BEEROCKS_WPA_SUPPLICANT_WLAN2_CTRL_IFACE "/var/run/wpa_supplicant_s1g/${BEEROCKS_WLAN2_IFACE}" CACHE PATH "wpa_supplicant ctrl iface path for 2nd WLAN")
+    set(BEEROCKS_WPA_SUPPLICANT_WLAN3_CTRL_IFACE "/var/run/wpa_supplicant_s1g/${BEEROCKS_WLAN3_IFACE}" CACHE PATH "wpa_supplicant ctrl iface path for 3rd WLAN")
+else()
+    set(BEEROCKS_HOSTAP_WLAN1_CTRL_IFACE "/var/run/hostapd/${BEEROCKS_WLAN1_IFACE}" CACHE PATH "hostapd ctrl iface path for 1st WLAN")
+    set(BEEROCKS_HOSTAP_WLAN2_CTRL_IFACE "/var/run/hostapd/${BEEROCKS_WLAN2_IFACE}" CACHE PATH "hostapd ctrl iface path for 2nd WLAN")
+    set(BEEROCKS_HOSTAP_WLAN3_CTRL_IFACE "/var/run/hostapd/${BEEROCKS_WLAN3_IFACE}" CACHE PATH "hostapd ctrl iface path for 3rd WLAN")
+
+    set(BEEROCKS_WPA_SUPPLICANT_WLAN1_CTRL_IFACE "/var/run/wpa_supplicant/${BEEROCKS_WLAN1_IFACE}" CACHE PATH "wpa_supplicant ctrl iface path for 1st WLAN")
+    set(BEEROCKS_WPA_SUPPLICANT_WLAN2_CTRL_IFACE "/var/run/wpa_supplicant/${BEEROCKS_WLAN2_IFACE}" CACHE PATH "wpa_supplicant ctrl iface path for 2nd WLAN")
+    set(BEEROCKS_WPA_SUPPLICANT_WLAN3_CTRL_IFACE "/var/run/wpa_supplicant/${BEEROCKS_WLAN3_IFACE}" CACHE PATH "wpa_supplicant ctrl iface path for 3rd WLAN")
+endif()
 
 # Add prplmesh_platform_db config generation
 add_subdirectory(platform_db)
@@ -150,6 +160,40 @@ elseif (TARGET_PLATFORM STREQUAL "linux")
     )
 
     add_definitions(-DPLATFORM_DB_PATH_TEMP="${TMP_PATH}/prplmesh_platform_db")
+
+elseif (TARGET_PLATFORM STREQUAL "MorseMicro")
+
+    # Platform definitions. UCI relies on OpenWRT support!
+    # Add the WPS-PBC STA workaround (hack)!
+    add_definitions(-DBEEROCKS_OPENWRT -DMORSE_WPS_PBC_WORKAROUND)
+
+    file(GLOB_RECURSE bpl_platform_sources
+        # Morse specific files 
+        ${MODULE_PATH}/arp/morse/*.c*
+        ${MODULE_PATH}/board/morse/*.c*
+        ${MODULE_PATH}/cfg/vendor/*.c*
+
+        # Use UBUS for DHCP (dnsmasq)
+        ${MODULE_PATH}/dhcp/morse/*.c*
+
+        # Use UCI for CFG and DB
+        ${MODULE_PATH}/common/uci/*.c*
+        ${MODULE_PATH}/cfg/uci/*.c*
+        ${MODULE_PATH}/db/uci/*.c*
+	${MODULE_PATH}/service_prioritization/osp_mxl/service_prio_utils_osp_mxl.cpp
+    )
+
+    # Use UCI for DB handling.
+    set(bpl_uci_db_files ${MODULE_PATH}/db/uci/prplmesh_db_version)
+    configure_file(
+      "${CMAKE_CURRENT_SOURCE_DIR}/db/uci/prplmesh_db.in"
+      "${CMAKE_CURRENT_BINARY_DIR}/prplmesh_db"
+      )
+    list(APPEND bpl_uci_db_files ${CMAKE_CURRENT_BINARY_DIR}/prplmesh_db)
+    install(FILES ${bpl_uci_db_files} DESTINATION ${CMAKE_INSTALL_PREFIX}/share)
+    file(COPY ${bpl_uci_db_files} DESTINATION "${CMAKE_MULTIAP_OUTPUT_DIRECTORY}/share")
+
+    list(APPEND BPL_LIBS ubus ubox uci)
 
 else()
 

@@ -45,6 +45,9 @@ public:
                 uint8_t freq_type;
                 uint8_t channel_ext_above_secondary;
                 uint8_t ch_load;
+#if defined(MORSE_MICRO)
+                float s1g_freq;
+#endif
                 std::string radio_identifier;
                 std::string radio_mac;
                 std::string ifname;
@@ -161,6 +164,9 @@ private:
     int client_clear_client_caller(int numOfArgs);
     int send_unassoc_sta_rcpi_query_caller(int numOfArgs);
     int get_unassoc_sta_rcpi_result_caller(int numOfArgs);
+#if defined(MORSE_MICRO)
+    int get_agent_status(int numOfArgs);
+#endif
     // Functions
     int onboard_status();
     int ping();
@@ -238,6 +244,9 @@ private:
     int client_clear_client(const std::string &sta_mac);
     int send_unassoc_sta_rcpi_query(const std::string &sta_mac, int16_t opclass, int16_t channel);
     int get_unassoc_sta_rcpi_query_result(const std::string &sta_mac);
+#if defined(MORSE_MICRO)
+    int agent_status();
+#endif
     template <typename T> const std::string string_from_int_array(T *arr, size_t arr_max_size);
     // Variable
     std::string beerocks_conf_path;

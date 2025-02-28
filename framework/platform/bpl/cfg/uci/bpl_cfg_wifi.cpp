@@ -50,7 +50,11 @@ static bool bpl_cfg_get_bss_configuration(const std::string &section_name,
         } else if (starts_with("psk2", encryption)) {
             return WSC::eWscAuth::WSC_AUTH_WPA2PSK;
         } else if ("sae" == encryption) {
+#if defined(MORSE_WPS_PBC_WORKAROUND)
+            return WSC::eWscAuth(WSC::eWscAuth::WSC_AUTH_SAE | WSC::eWscAuth::WSC_AUTH_WPA2PSK);
+#else
             return WSC::eWscAuth::WSC_AUTH_SAE;
+#endif
         }
         return WSC::eWscAuth::WSC_AUTH_INVALID;
     };
@@ -284,6 +288,12 @@ bool bpl_cfg_get_wireless_settings(std::list<son::wireless_utils::sBssInfoConf> 
             configuration.operating_class.splice(
                 configuration.operating_class.end(),
                 son::wireless_utils::string_to_wsc_oper_class("5g"));
+#if defined(MORSE_MICRO)
+        } else if (hwmode == "11ah") {
+            configuration.operating_class.splice(
+                configuration.operating_class.end(),
+                son::wireless_utils::string_to_wsc_oper_class("s1g"));
+#endif
         } else {
             LOG(DEBUG) << "Failed to get frequency band for SSID " << configuration.ssid
                        << " from hwmode " << hwmode;
@@ -433,14 +443,22 @@ bool bpl_cfg_get_mandatory_interfaces(std::string &mandatory_interfaces)
 
 bool bpl_cfg_get_wpa_supplicant_ctrl_path(const std::string &iface, std::string &wpa_ctrl_path)
 {
+#if !defined(MORSE_MICRO)
     const char *path{"/var/run/wpa_supplicant/"};
+#else
+    const char *path{"/var/run/wpa_supplicant_s1g/"};
+#endif
     wpa_ctrl_path = path + iface;
     return true;
 }
 
 bool bpl_cfg_get_hostapd_ctrl_path(const std::string &iface, std::string &hostapd_ctrl_path)
 {
+#if !defined(MORSE_MICRO)
     const char *path{"/var/run/hostapd/"};
+#else
+    const char *path{"/var/run/hostapd_s1g/"};
+#endif
     hostapd_ctrl_path = path + iface;
     return true;
 }

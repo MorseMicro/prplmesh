@@ -116,12 +116,23 @@ void ApAutoConfigurationTask::work()
             // If another radio with same band already finished the discovery phase, we can skip
             // directly to next phase (AP_CONFIGURATION).
             if (m_discovery_status[radio->wifi_channel.get_freq_type()].completed) {
+                LOG(DEBUG) << " another radio with same band already finished the discovery phase, "
+                              "Skip discovery";
                 FSM_MOVE_STATE(radio_iface, eState::SEND_AP_AUTOCONFIGURATION_WSC_M1);
             }
 
             // If another radio with same band already have sent the
             // AP_AUTOCONFIGURATION_SEARCH_MESSAGE, we can skip and let it handle it.
             if (m_discovery_status[radio->wifi_channel.get_freq_type()].msg_sent) {
+#if defined(MORSE_MICRO)
+                LOG(DEBUG) << " another radio with same band already have sent "
+                              "AP_AUTOCONFIGURATION_SEARCH_MESSAGE. notify that controller is "
+                              "discovered already";
+                m_btl_ctx.notify_controller_discovery();
+#else
+                LOG(DEBUG) << " another radio with same band already have sent "
+                              "AP_AUTOCONFIGURATION_SEARCH_MESSAGE.";
+#endif
                 continue;
             }
 
@@ -477,6 +488,10 @@ bool ApAutoConfigurationTask::send_ap_autoconfiguration_search_message(
         freq_band = ieee1905_1::tlvAutoconfigFreqBand::IEEE_802_11_2_4_GHZ;
     } else if (radio->wifi_channel.get_freq_type() == beerocks::eFreqType::FREQ_5G) {
         freq_band = ieee1905_1::tlvAutoconfigFreqBand::IEEE_802_11_5_GHZ;
+#if defined(MORSE_MICRO)
+    } else if (radio->wifi_channel.get_freq_type() == beerocks::eFreqType::FREQ_S1G) {
+        freq_band = ieee1905_1::tlvAutoconfigFreqBand::IEEE_802_11_S1G_GHZ;
+#endif
     } else if (radio->wifi_channel.get_freq_type() == beerocks::eFreqType::FREQ_6G) {
         freq_band = ieee1905_1::tlvAutoconfigFreqBand::IEEE_802_11_6_GHZ;
     } else {
@@ -802,6 +817,13 @@ bool ApAutoConfigurationTask::send_ap_autoconfiguration_wsc_m1_message(
 
     notification->hostap().ant_gain = config.radios.at(radio_iface).hostap_ant_gain;
 
+#if defined(MORSE_MICRO)
+    LOG(INFO) << " WSC M1 Mesg : channel " << radio->wifi_channel.get_channel()
+              << " bw: " << radio->wifi_channel.get_bandwidth()
+              << " vht_center_freq: " << radio->wifi_channel.get_center_frequency()
+              << " s1g_freq: " << radio->wifi_channel.get_s1g_freq()
+              << " s1g_op_class: " << radio->wifi_channel.get_s1g_opclass();
+#endif
     // Channel Selection Params
     notification->cs_params().channel   = radio->wifi_channel.get_channel();
     notification->cs_params().bandwidth = radio->wifi_channel.get_bandwidth();
@@ -809,6 +831,10 @@ bool ApAutoConfigurationTask::send_ap_autoconfiguration_wsc_m1_message(
         radio->wifi_channel.get_ext_above_primary();
     notification->cs_params().vht_center_frequency = radio->wifi_channel.get_center_frequency();
     notification->cs_params().tx_power             = radio->tx_power_dB;
+#if defined(MORSE_MICRO)
+    notification->cs_params().s1g_freq     = radio->wifi_channel.get_s1g_freq();
+    notification->cs_params().s1g_op_class = radio->wifi_channel.get_s1g_opclass();
+#endif
 
     m_btl_ctx.send_cmdu_to_controller(radio_iface, m_cmdu_tx);
     LOG(DEBUG) << "sending WSC M1 Size=" << m_cmdu_tx.getMessageLength();
@@ -869,6 +895,9 @@ bool ApAutoConfigurationTask::add_wsc_m1_tlv(const std::string &radio_iface)
     case beerocks::FREQ_24G:
         cfg.bands = WSC::WSC_RF_BAND_2GHZ;
         break;
+#if defined(MORSE_MICRO)
+    case beerocks::FREQ_S1G:
+#endif
     case beerocks::FREQ_5G:
         cfg.bands = WSC::WSC_RF_BAND_5GHZ;
         break;
@@ -940,6 +969,12 @@ void ApAutoConfigurationTask::handle_ap_autoconfiguration_response(
         band_name = "5GHz";
         freq_type = beerocks::eFreqType::FREQ_5G;
         break;
+#if defined(MORSE_MICRO)
+    case ieee1905_1::tlvSupportedFreqBand::BAND_S1G:
+        band_name = "S1G";
+        freq_type = beerocks::eFreqType::FREQ_S1G;
+        break;
+#endif
     case ieee1905_1::tlvSupportedFreqBand::BAND_6G:
         band_name = "6GHz";
         freq_type = beerocks::eFreqType::FREQ_6G;
@@ -1620,7 +1655,7 @@ void ApAutoConfigurationTask::handle_vs_wifi_credentials_update_response(
     }
 
     LOG(TRACE) << "received ACTION_APMANAGER_WIFI_CREDENTIALS_UPDATE_RESPONSE from "
-               << radio->front.iface_name;
+               << radio->front.iface_name << "no_of_bss=" << radio_conf_params.num_of_bss_available;
 
     // This value have an arbitrary value based on observation on real platform behavior.
     constexpr uint8_t WAIT_AP_ENABLED_TIMEOUT_SECONDS = 20;
@@ -1652,7 +1687,7 @@ void ApAutoConfigurationTask::handle_vs_ap_enabled_notification(
 
     const auto &vap_info = notification_in->vap_info();
     auto bssid           = std::find_if(radio->front.bssids.begin(), radio->front.bssids.end(),
-                              [&vap_info](const beerocks::AgentDB::sRadio::sFront::sBssid &bssid) {
+                                        [&vap_info](const beerocks::AgentDB::sRadio::sFront::sBssid &bssid) {
                                   return bssid.mac == vap_info.mac;
                               });
     if (bssid == radio->front.bssids.end()) {

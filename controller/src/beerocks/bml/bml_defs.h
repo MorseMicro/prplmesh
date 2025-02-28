@@ -258,6 +258,10 @@ struct BML_NODE {
                 /* Radio identifier */
                 uint8_t radio_identifier[BML_MAC_ADDR_LEN];
 
+#if defined(MORSE_MICRO)
+                /* S1G frequency*/
+                float s1g_freq;
+#endif
                 /* Reserved bytes for alignment */
                 uint8_t reserved[2];
 

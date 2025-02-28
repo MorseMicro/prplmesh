@@ -175,6 +175,13 @@ enum eWiFiBandwidth : uint8_t {
     BANDWIDTH_80,
     BANDWIDTH_80_80,
     BANDWIDTH_160,
+#if defined(MORSE_MICRO)
+    // S1G BW
+    BANDWIDTH_1,
+    BANDWIDTH_2,
+    BANDWIDTH_4,
+    BANDWIDTH_8,
+#endif
     BANDWIDTH_MAX,
 };
 
@@ -397,6 +404,9 @@ enum eFreqType {
     FREQ_58G    = 2,
     FREQ_24G_5G = 3,
     FREQ_6G     = 4,
+#if defined(MORSE_MICRO)
+    FREQ_S1G    = 5,
+#endif
     FREQ_AUTO,
     FREQ_UNKNOWN,
 };

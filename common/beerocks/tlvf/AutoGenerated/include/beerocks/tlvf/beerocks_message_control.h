@@ -197,6 +197,31 @@ class cACTION_CONTROL_CHANGE_MODULE_LOGGING_LEVEL : public BaseClass
         sLoggingLevelChange* m_params = nullptr;
 };
 
+#if defined(MORSE_MICRO)
+class cACTION_CONTROL_AGENT_STATUS : public BaseClass
+{
+    public:
+        cACTION_CONTROL_AGENT_STATUS(uint8_t* buff, size_t buff_len, bool parse = false);
+        explicit cACTION_CONTROL_AGENT_STATUS(std::shared_ptr<BaseClass> base, bool parse = false);
+        ~cACTION_CONTROL_AGENT_STATUS();
+
+        static eActionOp_CONTROL get_action_op(){
+            return (eActionOp_CONTROL)(ACTION_CONTROL_AGENT_STATUS);
+        }
+        uint16_t& state();
+        uint16_t& fd();
+        void class_swap() override;
+        bool finalize() override;
+        static size_t get_initial_size();
+
+    private:
+        bool init();
+        eActionOp_CONTROL* m_action_op = nullptr;
+        uint16_t* m_state = nullptr;
+        uint16_t* m_fd = nullptr;
+};
+#endif
+
 class cACTION_CONTROL_HOSTAP_CSA_ERROR_NOTIFICATION : public BaseClass
 {
     public:

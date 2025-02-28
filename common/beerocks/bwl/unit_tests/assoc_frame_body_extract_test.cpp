@@ -32,7 +32,11 @@ TEST(action_frame_body_extract_test, extract_body_ok)
               sizeof(assoc_req) - 1);
 
     // Convert the frame data from hex string to vector
+#if !defined(MORSE_MICRO)
     std::vector<int8_t> data;
+#else
+    std::vector<uint8_t> data;
+#endif
     data = beerocks::string_utils::hex_to_bytes<decltype(data)>(std::string(assoc_req));
 
     //Validate the frame body content

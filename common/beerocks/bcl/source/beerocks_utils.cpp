@@ -215,6 +215,20 @@ beerocks::eWiFiBandwidth utils::convert_bandwidth_to_enum(int bandwidth_int)
     case 160:
         bw = beerocks::BANDWIDTH_160;
         break;
+#if defined(MORSE_MICRO)
+    case 1:
+        bw = beerocks::BANDWIDTH_1;
+        break;
+    case 2:
+        bw = beerocks::BANDWIDTH_2;
+        break;
+    case 4:
+        bw = beerocks::BANDWIDTH_4;
+        break;
+    case 8:
+        bw = beerocks::BANDWIDTH_8;
+        break;
+#endif
     default:
         bw = beerocks::BANDWIDTH_80;
         break;
@@ -234,6 +248,16 @@ int utils::convert_bandwidth_to_int(beerocks::eWiFiBandwidth bandwidth)
     case beerocks::BANDWIDTH_80_80:
     case beerocks::BANDWIDTH_160:
         return 160;
+#if defined(MORSE_MICRO)
+    case beerocks::BANDWIDTH_1:	
+        return 1;
+    case beerocks::BANDWIDTH_2:
+        return 2;
+    case beerocks::BANDWIDTH_4:
+        return 4;
+    case beerocks::BANDWIDTH_8:
+        return 8;
+#endif
     default:
         LOG(ERROR) << "Failed to convert eWiFiBandwidth: " << bandwidth << " to integer";
         return bandwidth;
@@ -253,6 +277,10 @@ std::string utils::convert_frequency_type_to_string(beerocks::eFreqType freq_typ
         return "5GHz";
     case beerocks::FREQ_6G:
         return "6GHz";
+#if defined(MORSE_MICRO)
+	case beerocks::FREQ_S1G:
+		return "S1GHz";
+#endif
     case beerocks::FREQ_AUTO:
         return "Auto Frequency";
     case beerocks::FREQ_UNKNOWN:
@@ -278,6 +306,13 @@ std::string utils::convert_channel_ext_above_to_string(bool channel_ext_above_se
         } else {
             return "L";
         }
+#if defined(MORSE_MICRO)
+    case beerocks::BANDWIDTH_1:
+    case beerocks::BANDWIDTH_2:
+    case beerocks::BANDWIDTH_4:
+    case beerocks::BANDWIDTH_8:
+        return " S1G";
+#endif
     default:
         return std::string();
     }

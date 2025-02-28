@@ -74,6 +74,9 @@ inline std::ostream &operator<<(std::ostream &out, eClientsMeasurementMode value
 /* Radio Band */
 #define BPL_RADIO_BAND_5G 5
 #define BPL_RADIO_BAND_2G 2
+#if defined(MORSE_MICRO)
+#define BPL_RADIO_BAND_S1G 1
+#endif
 #define BPL_RADIO_BAND_6G 6
 
 /* Platform Operating Mode */

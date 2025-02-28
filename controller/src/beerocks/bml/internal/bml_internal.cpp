@@ -384,7 +384,7 @@ bool bml_internal::handle_nw_map_query_update(int elements_num, int last_node, v
     // get_node()
     static __thread std::function<void *()> node_iter_get_node_cb_wrapper;
     node_iter_get_node_cb_wrapper = [&]() -> void * { return (cNodeIter.data()); };
-    sNodeIter.get_node            = []() -> BML_NODE * {
+    sNodeIter.get_node            = []() -> BML_NODE            *{
         return ((BML_NODE *)node_iter_get_node_cb_wrapper());
     };
 
@@ -424,7 +424,7 @@ bool bml_internal::handle_stats_update(int elements_num, void *data_buffer)
     // get_node()
     static __thread std::function<void *()> stat_iter_get_node_cb_wrapper;
     stat_iter_get_node_cb_wrapper = [&]() -> void * { return (cStatIter.data()); };
-    sStatIter.get_node            = []() -> BML_STATS * {
+    sStatIter.get_node            = []() -> BML_STATS            *{
         return ((BML_STATS *)stat_iter_get_node_cb_wrapper());
     };
 
@@ -544,6 +544,19 @@ int bml_internal::process_cmdu_header(std::shared_ptr<beerocks_header> beerocks_
             }
 
         } break;
+#if defined(MORSE_MICRO)
+        case beerocks_message::ACTION_BML_AGENT_STATUS_RESPONSE: {
+            auto response =
+                beerocks_header->addClass<beerocks_message::cACTION_BML_AGENT_STATUS_RESPONSE>();
+            if (response == nullptr) {
+                LOG(ERROR) << "addClass cACTION_BML_AGENT_STATUS_RESPONSE failed";
+                return BML_RET_OP_FAILED;
+            }
+            if (m_prmAgentStatus) {
+                m_prmAgentStatus->set_value(response->state());
+            }
+        } break;
+#endif
         // Operation status responce
         case beerocks_message::ACTION_BML_TOPOLOGY_RESPONSE: {
 
@@ -2658,6 +2671,66 @@ int bml_internal::ping()
 
     return (iRet);
 }
+
+#if defined(MORSE_MICRO)
+int bml_internal::get_agent_state()
+{
+    // Command supported only on local master
+    if (!is_local_master()) {
+        LOG(ERROR) << "Command supported only on local master!";
+        return (-BML_RET_OP_NOT_SUPPORTED);
+    }
+
+    // If the socket is not valid, attempt to re-establish the connection
+    if (m_sockMaster == nullptr) {
+        int iRet = connect_to_master();
+        if (iRet != BML_RET_OK) {
+            LOG(ERROR) << "agent status - connect_to_master failed";
+            return iRet;
+        }
+    }
+
+    beerocks::promise<uint16_t> prmAgentStatus;
+    m_prmAgentStatus = &prmAgentStatus;
+
+    //CMDU Message
+    auto request =
+        message_com::create_vs_message<beerocks_message::cACTION_BML_AGENT_STATUS_REQUEST>(cmdu_tx);
+
+    if (request == nullptr) {
+        LOG(ERROR) << "Failed building AGENT_STATUS message!";
+        return (-BML_RET_OP_FAILED);
+    }
+
+    if (!message_com::send_cmdu(m_sockMaster, cmdu_tx)) {
+        LOG(ERROR) << "Failed sending AGENT_STATUS message!";
+        return (-BML_RET_OP_FAILED);
+    }
+
+    int iRet = BML_RET_OK;
+
+    if (!prmAgentStatus.wait_for(RESPONSE_TIMEOUT)) {
+        LOG(WARNING) << "Timeout on AGENT_STATUS to beerocks master";
+        iRet = -BML_RET_TIMEOUT;
+    }
+
+    if (m_prmAgentStatus->get_value() != STATE_OPERATIONAL) {
+        LOG(WARNING) << "Agent is not operational yet";
+        iRet = -BML_RET_OP_FAILED;
+    } else {
+        LOG(INFO) << "Agent is Operational";
+    }
+
+    m_prmAgentStatus = nullptr;
+
+    if (iRet != BML_RET_OK) {
+        LOG(ERROR) << "AGENT_STATUS to master failed!";
+        return (-BML_RET_OP_FAILED);
+    }
+
+    return (iRet);
+}
+#endif
 
 void bml_internal::register_nw_map_query_cb(BML_NW_MAP_QUERY_CB pCB) { m_cbNetMapQuery = pCB; }
 

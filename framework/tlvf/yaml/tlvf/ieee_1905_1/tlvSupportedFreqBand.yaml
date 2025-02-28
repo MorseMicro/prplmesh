@@ -18,3 +18,4 @@ eValue:
   BAND_5G: 0x01
   BAND_60G: 0x02
   BAND_6G: 0x03
+  BAND_S1G: 0x04

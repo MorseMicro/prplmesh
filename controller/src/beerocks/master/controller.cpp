@@ -19,6 +19,9 @@
 #include "tasks/dhcp_task.h"
 #include "tasks/load_balancer_task.h"
 #include "tasks/optimal_path_task.h"
+#if defined(MORSE_MICRO)
+#include "tasks/ire_network_optimization_task.h"
+#endif
 #include "tasks/topology_task.h"
 #ifdef FEATURE_PRE_ASSOCIATION_STEERING
 #include "tasks/pre_association_steering/pre_association_steering_task.h"
@@ -727,6 +730,12 @@ bool Controller::handle_cmdu_1905_autoconfiguration_search(const sMacAddr &src_m
         tlvSupportedFreqBand->value() = ieee1905_1::tlvSupportedFreqBand::BAND_60G;
         break;
     }
+#if defined(MORSE_MICRO)
+    case ieee1905_1::tlvAutoconfigFreqBand::IEEE_802_11_S1G_GHZ: {
+        tlvSupportedFreqBand->value() = ieee1905_1::tlvSupportedFreqBand::BAND_S1G;
+        break;
+    }
+#endif
     default: {
         LOG(ERROR) << "unknown autoconfig freq band, value=" << int(auto_config_freq_band);
         return false;
@@ -2572,6 +2581,9 @@ bool Controller::handle_intel_slave_join(
               << "    ant_num=" << int(notification->hostap().ant_num)
               << " ant_gain=" << int(notification->hostap().ant_gain)
               << " channel=" << int(notification->cs_params().channel)
+              << " s1g_freq=" << int(notification->cs_params().s1g_freq)
+              << " bandwidth=" << int(notification->cs_params().bandwidth)
+              << " vht=" << int(notification->cs_params().vht_center_frequency)
               << " conducted=" << int(notification->hostap().tx_power) << std::endl
               << "    radio_mac=" << radio_mac << std::endl;
 
@@ -2736,6 +2748,39 @@ bool Controller::handle_intel_slave_join(
     if (database.get_node_type(tlvf::mac_to_string(radio_mac)) == beerocks::TYPE_SLAVE) {
         database.update_node_last_seen(tlvf::mac_to_string(radio_mac));
     }
+
+#if defined(MORSE_MICRO)
+    if (ire_type == beerocks::TYPE_IRE && !backhaul_ipv4.empty() &&
+        backhaul_ipv4 != beerocks::net::network_utils::ZERO_IP_STRING) {
+        auto notification_out = beerocks::message_com::create_vs_message<
+            beerocks_message::cACTION_CONTROL_CLIENT_NEW_IP_ADDRESS_NOTIFICATION>(cmdu_tx);
+
+        if (!notification_out) {
+            LOG(ERROR) << __func__ << "Failed building message!";
+            return false;
+        }
+        notification_out->mac()  = notification->backhaul_params().backhaul_mac;
+        notification_out->ipv4() = notification->backhaul_params().backhaul_ipv4;
+
+        auto client_bssid = database.get_node_parent(backhaul_mac);
+        if (client_bssid.empty()) {
+            LOG(WARNING) << "Client does not have a valid parent hostap on the database";
+            return true;
+        }
+        auto client_radio = database.get_node_parent_radio(client_bssid);
+        LOG(INFO) << "Client " << notification_out->mac()
+                     << " is connected wirelessly, Sending IP addr notification to radio="
+                     << client_radio  << " IP="
+                     << beerocks::net::network_utils::ipv4_to_string(
+                            notification->backhaul_params().backhaul_ipv4);
+
+        auto agent_mac = tlvf::mac_from_string(database.get_node_parent(client_radio));
+        son_actions::send_cmdu_to_agent(agent_mac, cmdu_tx, database, client_radio);
+    } else {
+        LOG(INFO) << "ire_type=" << ire_type << " backhaul_mac" << backhaul_mac << " IP="
+            << beerocks::net::network_utils::ipv4_to_string(notification->backhaul_params().backhaul_ipv4);
+    }
+#endif
 
     return true;
 }
@@ -3438,7 +3483,7 @@ bool Controller::handle_cmdu_control_message(
             new_event.snr        = notification->params().rx_snr;
             new_event.client_mac = notification->params().result.mac;
             new_event.bssid      = database.get_hostap_vap_mac(tlvf::mac_from_string(ap_mac),
-                                                          notification->params().vap_id);
+                                                               notification->params().vap_id);
             m_task_pool.push_event(database.get_pre_association_steering_task_id(),
                                    pre_association_steering_task::eEvents::
                                        STEERING_EVENT_RSSI_MEASUREMENT_SNR_NOTIFICATION,
@@ -3495,6 +3540,21 @@ bool Controller::handle_cmdu_control_message(
                 m_task_pool.add_task(new_task);
             }
         }
+
+#if defined(MORSE_MICRO)
+        if ((database.get_node_type(client_mac) == beerocks::TYPE_IRE_BACKHAUL) &&
+            (database.get_node_state(client_mac) == beerocks::STATE_CONNECTED) &&
+            (database.settings_ire_roaming())) {
+            if (m_task_pool.is_task_running(client->roaming_task_id)) {
+                LOG(DEBUG) << "ire roaming task already running for " << client_mac;
+            } else {
+                LOG(DEBUG) << "add ire_network_optimization_task";
+                auto new_task = std::make_shared<ire_network_optimization_task>(
+                    database, cmdu_tx, m_task_pool, "hostapd_tx_on_ack - ire_network_optimization");
+                m_task_pool.add_task(new_task);
+            }
+        }
+#endif
         break;
     }
     case beerocks_message::ACTION_CONTROL_CLIENT_NO_RESPONSE_NOTIFICATION: {

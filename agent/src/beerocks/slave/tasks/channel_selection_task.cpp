@@ -1031,11 +1031,21 @@ bool ChannelSelectionTask::build_channel_preference_report(const sMacAddr &radio
         const auto &oper_class_channels = oper_class.second.channels;
         const auto oper_class_bw        = oper_class.second.band;
 
+#if defined(MORSE_MICRO)
+        if (oper_class_bw >= beerocks::BANDWIDTH_1 && oper_class_bw <= beerocks::BANDWIDTH_8) {
+            if (radio->wifi_channel.get_freq_type() != son::wireless_utils::which_freq_op_cls(oper_class_num)) {
+                continue;
+            }
+        } else {
+            continue;
+        }
+#else
         if (radio->wifi_channel.get_freq_type() !=
             son::wireless_utils::which_freq_op_cls(oper_class_num)) {
             // Operating Class not part of the current radio, skip.
             continue;
         }
+#endif
 
         for (auto channel_of_oper_class : oper_class_channels) {
             // Operating classes 128-130,132-135 use center channel **unlike the other classes**,

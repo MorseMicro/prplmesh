@@ -78,6 +78,9 @@ void association_handling_task::work()
         TASK_LOG(DEBUG) << "started association_handling_task, rssi measurement on " << sta_mac;
         state        = START_RSSI_MONITORING;
         max_attempts = START_MONITORING_MAX_ATTEMPTS;
+#if defined(MORSE_MICRO)
+        wait_for(1500);
+#endif
         break;
     }
 
@@ -109,6 +112,21 @@ void association_handling_task::work()
             return;
         }
 
+#if defined(MORSE_MICRO)
+        if (database.get_node_ipv4(sta_mac).empty()) {
+            std::string iface_name;
+            auto ip = database.get_node_ipv4(new_hostap_mac);
+            auto iface = database.get_hostap_iface_name(tlvf::mac_from_string(new_hostap_mac));
+            auto bridge = database.get_local_bridge_mac();
+            if (network_utils::linux_iface_get_name(bridge, iface_name)) {
+                auto ip_after_arp_scan = network_utils::linux_arp_scan(iface_name, sta_mac, ip);
+                if (!ip_after_arp_scan.empty()) {
+                    database.set_node_ipv4(sta_mac, ip_after_arp_scan);
+                }
+            }
+        }
+#endif
+
         request->params().mac    = tlvf::mac_from_string(sta_mac);
         request->params().ipv4   = network_utils::ipv4_from_string(database.get_node_ipv4(sta_mac));
         request->params().is_ire = false;
@@ -120,6 +138,10 @@ void association_handling_task::work()
                 std::string bridge_4addr_mac       = *bridge_container.begin();
                 request->params().bridge_4addr_mac = tlvf::mac_from_string(bridge_4addr_mac);
                 LOG(DEBUG) << "IRE " << sta_mac << " is on a bridge with mac " << bridge_4addr_mac;
+#if defined(MORSE_MICRO)
+                LOG(DEBUG) << "bridge ip:" << database.get_node_ipv4(bridge_4addr_mac);
+                request->params().ipv4 = network_utils::ipv4_from_string(database.get_node_ipv4(bridge_4addr_mac));
+#endif
             }
         }
 
@@ -298,7 +320,14 @@ void association_handling_task::handle_response(std::string mac,
             max_attempts = BEACON_MEASURE_MAX_ATTEMPTS;
             attempts     = 0;
         } else {
+#if !defined(MORSE_MICRO)
             state = REQUEST_RSSI_MEASUREMENT_WAIT;
+#else
+            // Since MM supports 11k on IRE's check the beacon measurement capability
+            state        = CHECK_11K_BEACON_MEASURE_CAP;
+            max_attempts = BEACON_MEASURE_MAX_ATTEMPTS;
+            attempts     = 0;
+#endif
         }
         break;
     }

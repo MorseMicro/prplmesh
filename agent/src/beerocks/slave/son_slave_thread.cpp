@@ -38,6 +38,9 @@
 #include <beerocks/tlvf/beerocks_message_control.h>
 #include <beerocks/tlvf/beerocks_message_monitor.h>
 #include <beerocks/tlvf/beerocks_message_platform.h>
+#if defined(MORSE_MICRO)
+#include <beerocks/tlvf/beerocks_message_bml.h>
+#endif
 #include <mapf/common/utils.h>
 #include <tlvf/AttrList.h>
 #include <tlvf/ieee_1905_1/tlvAlMacAddress.h>
@@ -588,6 +591,10 @@ bool slave_thread::read_platform_configuration()
             return beerocks::eFreqType::FREQ_24G;
         } else if (bpl_band == BPL_RADIO_BAND_5G) {
             return beerocks::eFreqType::FREQ_5G;
+#if defined(MORSE_MICRO)
+        } else if (bpl_band == BPL_RADIO_BAND_S1G) {
+            return beerocks::eFreqType::FREQ_S1G;
+#endif
         } else if (bpl_band == BPL_RADIO_BAND_6G) {
             return beerocks::eFreqType::FREQ_6G;
         } else if (bpl_band == BPL_RADIO_BAND_AUTO) {
@@ -825,6 +832,9 @@ bool slave_thread::handle_cmdu(int fd, ieee1905_1::CmduMessageRx &cmdu_rx)
         }
 
         switch (beerocks_header->action()) {
+#if defined(MORSE_MICRO)
+        case beerocks_message::ACTION_BML:
+#endif
         case beerocks_message::ACTION_CONTROL: {
             return handle_cmdu_control_message(fd, beerocks_header);
         } break;
@@ -886,7 +896,11 @@ bool slave_thread::handle_cmdu_from_broker(uint32_t iface_index, const sMacAddr 
             return false;
         }
 
-        if (beerocks_header->action() != beerocks_message::ACTION_CONTROL) {
+        if (beerocks_header->action() != beerocks_message::ACTION_CONTROL
+#if defined(MORSE_MICRO)
+            && beerocks_header->action() != beerocks_message::ACTION_BML
+#endif
+        ) {
             LOG(ERROR) << "Unknown message, action: " << std::hex << int(beerocks_header->action());
             return false;
         }
@@ -1215,6 +1229,24 @@ bool slave_thread::handle_cmdu_control_message(int fd,
         send_cmdu(radio_manager.monitor_fd, cmdu_tx);
         break;
     }
+#if defined(MORSE_MICRO)
+    case beerocks_message::ACTION_CONTROL_AGENT_STATUS: {
+        LOG(DEBUG) << "GOT ACTION_CONTROL_AGENT_STATUS";
+        auto notification_in =
+            beerocks_header->addClass<beerocks_message::cACTION_CONTROL_AGENT_STATUS>();
+        auto response =
+            message_com::create_vs_message<beerocks_message::cACTION_BML_AGENT_STATUS_RESPONSE>(
+                cmdu_tx);
+        if (!response) {
+            LOG(ERROR) << "Failed building cACTION_BML_AGENT_STATUS_RESPONSE msg";
+            return false;
+        }
+        response->state() = m_agent_state;
+        response->fd()    = notification_in->fd();
+
+        send_cmdu_to_controller(fronthaul_iface, cmdu_tx);
+    } break;
+#endif
     case beerocks_message::ACTION_CONTROL_CHANGE_MODULE_LOGGING_LEVEL: {
         auto request_in =
             beerocks_header
@@ -2434,6 +2466,12 @@ bool slave_thread::handle_cmdu_ap_manager_message(const std::string &fronthaul_i
         std::copy_n(notification->params().he_mcs_set, beerocks::message::HE_MCS_SET_SIZE,
                     radio->he_mcs_set.begin());
 
+#if defined(MORSE_MICRO)
+        auto is_s1g = wireless_utils::is_bandwidth_s1g(
+            static_cast<beerocks::eWiFiBandwidth>(notification->cs_params().bandwidth));
+        if (is_s1g)
+            notification->params().frequency_band = beerocks::FREQ_S1G;
+#endif
         save_channel_params_to_db(fronthaul_iface, notification->cs_params());
         if (notification->params().frequency_band != radio->wifi_channel.get_freq_type()) {
             LOG(ERROR) << "Radio wifi channel's frequncy types does not match the frequency type "
@@ -4565,7 +4603,26 @@ bool slave_thread::agent_fsm()
         break;
     }
     case STATE_BACKHAUL_MANAGER_CONNECTED: {
-        LOG(TRACE) << "BACKHAUL LINK CONNECTED";
+        auto db                       = AgentDB::get();
+#if defined(MORSE_MICRO)
+        std::string bridge_iface_name = db->bridge.iface_name;
+        std::string str_iface_ip;
+
+        /* Get the IP address of the bridge and move the state when IP is assigned */
+        if (!network_utils::linux_iface_get_ip(bridge_iface_name, str_iface_ip)) {
+            LOG(ERROR) << "BACKHAUL LINK CONNECTED: Failed reading '" << bridge_iface_name
+                       << "' IP!";
+            break;
+        }
+
+        if (str_iface_ip == beerocks::net::network_utils::ZERO_IP_STRING || str_iface_ip.empty()) {
+            LOG(INFO) << "BACKHAUL LINK CONNECTED: bridge ip=" << bridge_iface_name;
+            break;
+        } else {
+            LOG(INFO) << "BACKHAUL LINK CONNECTED: bridge:" << bridge_iface_name
+                      << " ip= " << str_iface_ip;
+        }
+#endif
 
         LOG(DEBUG) << "sending "
                       "ACTION_PLATFORM_SON_SLAVE_BACKHAUL_CONNECTION_COMPLETE_NOTIFICATION to "
@@ -4579,8 +4636,6 @@ bool slave_thread::agent_fsm()
             return false;
         }
         m_platform_manager_client->send_cmdu(cmdu_tx);
-
-        auto db = AgentDB::get();
 
         // Configure the transport process to bind the al_mac address
         if (!m_broker_client->configure_al_mac(db->bridge.mac)) {
@@ -4599,6 +4654,7 @@ bool slave_thread::agent_fsm()
                 }
             }
         }
+
         LOG(TRACE) << "goto STATE_WAIT_FOR_AUTO_CONFIGURATION_COMPLETE";
         m_agent_state = STATE_WAIT_FOR_AUTO_CONFIGURATION_COMPLETE;
         m_task_pool.send_event(eTaskType::AP_AUTOCONFIGURATION,
@@ -5183,15 +5239,35 @@ void slave_thread::save_channel_params_to_db(const std::string &fronthaul_iface,
 
     radio->tx_power_dB = params.tx_power;
 
-    radio->wifi_channel =
-        beerocks::WifiChannel(params.channel, params.vht_center_frequency,
-                              static_cast<beerocks::eWiFiBandwidth>(params.bandwidth));
-
+#if defined(MORSE_MICRO)
+    auto is_s1g =
+        wireless_utils::is_bandwidth_s1g(static_cast<beerocks::eWiFiBandwidth>(params.bandwidth));
+    if (is_s1g)
+        radio->wifi_channel =
+            beerocks::WifiChannel(params.channel, params.vht_center_frequency, params.s1g_freq,
+                                  static_cast<beerocks::eWiFiBandwidth>(params.bandwidth));
+    else
+#endif
+        radio->wifi_channel =
+            beerocks::WifiChannel(params.channel, params.vht_center_frequency,
+                                  static_cast<beerocks::eWiFiBandwidth>(params.bandwidth));
     if (params.channel_ext_above_primary != radio->wifi_channel.get_ext_above_primary()) {
         LOG(ERROR) << "the channel_ext_above_primary" << params.channel_ext_above_primary
                    << " does not the same as wifi channel's channel_ext_above_primary"
                    << radio->wifi_channel.get_ext_above_primary();
     }
+#if defined(MORSE_MICRO)
+    LOG(DEBUG) << "saving s1g vals"
+               << "\ns1g_chan:" << params.channel << "\ns1g_bw:" << params.bandwidth
+               << "\ns1g_freq:" << params.s1g_freq;
+    LOG(INFO) << " Radio channel " << radio->wifi_channel.get_channel()
+              << " bw: " << radio->wifi_channel.get_bandwidth()
+              << " vht_center_freq: " << radio->wifi_channel.get_center_frequency()
+              << " s1g_freq: " << radio->wifi_channel.get_s1g_freq()
+              << " s1g_op_class: " << radio->wifi_channel.get_s1g_opclass();
+
+    radio->max_supported_bw = static_cast<beerocks::eWiFiBandwidth>(params.bandwidth);
+#endif
 }
 
 void slave_thread::save_cac_capabilities_params_to_db(const std::string &fronthaul_iface)

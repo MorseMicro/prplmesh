@@ -56,58 +56,27 @@ killall_program() {
     start-stop-daemon -K -s "KILL" -x "$PRPLMESH_DIR/bin/$PROGRAM_NAME" > /dev/null 2>&1
 }
 
-platform_init() {
-    echo "platform init..."
-    [ -z "$DATA_IFACE" ] && err "DATA_IFACE not set, abort" && exit 1
-    [ -z "$CONTROL_IFACE" ] && err "CONTROL_IFACE not set, abort" && exit 1
-    base_mac=46:55:66:77
-    bridge_ip=192.168.100.140
-    control_ip=192.168.250.140
-
-    ip link add @BEEROCKS_BRIDGE_IFACE@ address "${base_mac}:00:00" type bridge
-    ip link add @BEEROCKS_WLAN1_IFACE@ address "${base_mac}:00:10" type dummy
-    ip link add @BEEROCKS_WLAN2_IFACE@ address "${base_mac}:00:20" type dummy
-    ip link set dev @BEEROCKS_WLAN1_IFACE@ up
-    ip link set dev @BEEROCKS_WLAN2_IFACE@ up
-    for iface in @BEEROCKS_WLAN1_IFACE@ @BEEROCKS_WLAN2_IFACE@ $DATA_IFACE
-    do
-        echo "add $iface to @BEEROCKS_BRIDGE_IFACE@"
-        nmcli d set "$iface" managed no
-        ip link set dev "$iface" master @BEEROCKS_BRIDGE_IFACE@
-        ip addr flush "$iface"
-    done
-    ip addr add "$control_ip"/24 dev "$CONTROL_IFACE"
-    ip addr add "$bridge_ip"/24 dev @BEEROCKS_BRIDGE_IFACE@
-    ip link set @BEEROCKS_BRIDGE_IFACE@ up
-}
-
-platform_deinit() {
-    echo "platform deinit"
-    [ -z "$DATA_IFACE" ] && err "DATA_IFACE not set, abort" && exit 1
-    [ -z "$CONTROL_IFACE" ] && err "CONTROL_IFACE not set, abort" && exit 1
-    for iface in @BEEROCKS_WLAN1_IFACE@ @BEEROCKS_WLAN2_IFACE@ $DATA_IFACE
-    do
-        echo "remove $iface from @BEEROCKS_BRIDGE_IFACE@"
-        ip link set dev "$iface" nomaster
-        nmcli d set "$iface" managed yes
-    done
-    ip link del @BEEROCKS_WLAN1_IFACE@
-    ip link del @BEEROCKS_WLAN2_IFACE@
-    ip link del @BEEROCKS_BRIDGE_IFACE@
-}
-
 prplmesh_platform_db_init() {
     management_mode=${1-Multi-AP-Controller-and-Agent}
     operating_mode=${2-Gateway}
 
-    mkdir -p @TMP_PATH@
+    uci set prplmesh.config.management_mode=$management_mode
+    uci set prplmesh.config.operating_mode=$operating_mode
 
-    # Put generated prplmesh_platform_db file to the temporary directory
-    cp "${PRPLMESH_DIR}/share/prplmesh_platform_db" @TMP_PATH@/prplmesh_platform_db
+    if [ "$management_mode" != "Multi-AP-Agent" ]; then
+        uci set prplmesh.config.wired_backhaul=1
+    else
+        uci set prplmesh.config.wired_backhaul=0
+    fi
 
-    # Modify generated parameters to current
-    sed -i "s/management_mode=.*/management_mode=${management_mode}/g" @TMP_PATH@/prplmesh_platform_db
-    sed -i "s/operating_mode=.*/operating_mode=${operating_mode}/g" @TMP_PATH@/prplmesh_platform_db
+    uci commit
+
+    # Workaround in case an old version of /morse/configs/morse_init.sh is used.
+    # Remove this eventaully!
+    if [ ! -f /var/morse/hostapd_s1g_multiap.conf ]; then
+        mkdir -p /var/morse
+        ln -s /tmp/hostapd_s1g_multiap.conf /var/morse/hostapd_s1g_multiap.conf
+    fi
 }
 
 prplmesh_framework_init() {
@@ -214,8 +183,13 @@ start_function() {
     echo "$0: start"
     [ "$(id -u)" -ne 0 ] && echo "$0: warning - this commands needs root privileges. It might not work without them (are you root?)"
 
-    # shellcheck disable=SC2050
-    [ "@BWL_TYPE@" = "DUMMY" ] && [ "$PLATFORM_INIT" = "true" ] && platform_init
+    mkdir -p /tmp/beerocks
+
+    if ! pgrep -l ubusd ; then
+        echo "prplmesh_framework_init - starting ubusd process..."
+        ubusd &
+    fi
+
     prplmesh_framework_init
     case "$PRPLMESH_MODE" in
         CA | ca)
@@ -299,6 +273,7 @@ status_function() {
     fi
 
     bml_cmd="bml_get_device_operational_radios $BRIDGE_MAC"
+    bml_agent_status="bml_get_agent_status"
 
     if  pgrep -l beerocks_cont ; then
         echo "executing operational test using bml"
@@ -307,13 +282,11 @@ status_function() {
             # Expecting
             # > OK Main radio agent operational
             # > OK wlan0 radio agent operational
-            # > OK wlan2 radio agent operational
             OK_Count=$(echo "$OUTPUT" | grep -c -e "OK.*operational")
-            if [ "$OK_Count" -eq 3 ]; then
+            if [ "$OK_Count" -eq 2 ]; then
                 success "operational test success!"
                 OUTPUT=$(echo "$OUTPUT" | grep -E '(FAIL|OK).*?operational')
                 success "$OUTPUT"
-                exit 0
             else
                 err "operational test failed!"
                 OUTPUT=$(echo "$OUTPUT" | grep -E '(FAIL| OK).*?operational' | sed -e "s/ OK/OK/")
@@ -321,14 +294,23 @@ status_function() {
                 if [ "$(echo "$OUTPUT" | grep -c -e " @BEEROCKS_WLAN1_IFACE@ .*operational")" -eq 0 ]; then
                     err "FAIL @BEEROCKS_WLAN1_IFACE@ radio agent operational"
                 fi
-                if [ "$(echo "$OUTPUT" | grep -c -e " @BEEROCKS_WLAN2_IFACE@ .*operational")" -eq 0 ]; then
-                    err "FAIL @BEEROCKS_WLAN2_IFACE@ radio agent operational"
-                fi
                 exit 1
             fi
         else
             err "Beerocks command failed to execute!"
             exit 1
+        fi
+
+        if execute_beerocks_command "$bml_agent_status" ; then
+            OUTPUT=$output;
+            OK_Count=$(echo "$OUTPUT" | grep -c -e "Agent is Operational")
+            if [ "$OK_Count" -eq 1 ]; then
+                success "Agent is connected to controller"
+                exit 0
+            else
+                err "Agent is not connected to the controller yet"
+                exit 1
+            fi
         fi
     else
         echo "executing operational test using grep on log files"
@@ -342,8 +324,7 @@ status_function() {
         # skip files that aren't symlinks (and skip the literal glob if there is no matching file):
         [ -L "$main_agent_log" ] || return
 
-        [ "$(file -Lb --mime-type "$main_agent_log")" = 'text/plain' ] || err "$main_agent_log is not a text file"
-        radios=$(grep -a 'fronthaul_iface=' "$main_agent_log"  | cut -d "=" -f2)
+        radios=$(grep 'fronthaul_iface=' "$main_agent_log"  | cut -d "=" -f2)
         for radio in $radios ; do
             report "$radio radio agent operational" radio_agent_operational "$LOGS_PATH" "$radio"
         done
@@ -357,8 +338,8 @@ usage() {
 }
 
 main() {
-    if ! OPTS=$(getopt -o 'hvm:pdC:D:'  -n 'parse-options' \
-        --long 'verbose,help,mode:,platform-init,delete-logs,iface-ctrl,iface-data' \
+    if ! OPTS=$(getopt -o 'hvm:d'  -n 'parse-options' \
+        --long 'verbose,help,mode:,delete-logs' \
         -- "$@") ; then
             err "Failed parsing options." >&2
             usage
@@ -372,17 +353,13 @@ main() {
             -v | --verbose)       VERBOSE=true; shift ;;
             -h | --help)          usage; exit 0; shift ;;
             -m | --mode)          PRPLMESH_MODE="$2"; shift; shift ;;
-            -p | --platform-init) PLATFORM_INIT=true; shift ;;
             -d | --delete-logs)   DELETE_LOGS=true; shift ;;
-            -C | --iface-ctrl)    CONTROL_IFACE="$2"; shift; shift ;;
-            -D | --iface-data)    DATA_IFACE="$2"; shift; shift ;;
             -- ) shift; break ;;
             * ) err "unsupported argument $1"; usage; exit 1 ;;
         esac
     done
 
     dbg VERBOSE=$VERBOSE
-    dbg PLATFORM_INIT=$PLATFORM_INIT
     dbg DELETE_LOGS=$DELETE_LOGS
 
     case $1 in
@@ -411,19 +388,11 @@ main() {
         *)
             err "unsupported argument \"$1\""; usage; exit 1 ;;
     esac
-
-    # Give write permissions (linux only)
-    # shellcheck disable=SC2050
-    if [ "@TARGET_PLATFORM@" = "linux" ]; then
-        chmod -R +o+w "/tmp/beerocks" || true
-    fi
 }
 
 VERBOSE=false
-PLATFORM_INIT=@BEEROCKS_PLATFORM_INIT@
 DELETE_LOGS=false
-CONTROL_IFACE=
-DATA_IFACE=
 PRPLMESH_MODE="CA" # CA = Controller & Agent, A = Agent only, C = Controller only
 
 main "$@"
+exit 0

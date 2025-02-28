@@ -87,8 +87,11 @@ bool sta_wlan_hal_nl80211::scan_bss(const sMacAddr &bssid, uint8_t channel,
         LOG(ERROR) << "Invalid parameters";
         return false;
     }
+#if defined(MORSE_MICRO)
+    auto freq = son::wireless_utils::s1g_chan_to_freq(channel);
+#else
     auto freq = son::wireless_utils::channel_to_freq(channel, freq_type);
-
+#endif
     LOG(DEBUG) << "Scan with TYPE=ONLY on interface: " << get_iface_name() << " for bssid " << bssid
                << " channel " << channel << " (frequency " << freq << ").";
 
@@ -221,11 +224,13 @@ bool sta_wlan_hal_nl80211::roam(const sMacAddr &bssid, ChannelFreqPair channel)
         return false;
     }
 
+#if !defined(MORSE_MICRO)
     auto freq = son::wireless_utils::channel_to_freq(int(channel.first), channel.second);
     if (!set_network(m_active_network_id, "freq_list", std::to_string(freq))) {
         LOG(ERROR) << "Failed setting frequency on interface " << get_iface_name();
         return false;
     }
+#endif
 
     auto bssid_str = tlvf::mac_to_string(bssid);
 

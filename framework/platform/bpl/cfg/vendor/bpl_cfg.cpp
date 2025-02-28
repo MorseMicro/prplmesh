@@ -16,13 +16,21 @@ namespace bpl {
 
 bool get_serial_number(std::string &serial_number)
 {
+#if !defined(MORSE_MICRO)
     serial_number.assign("prplmesh12345");
+#else
+    serial_number.assign("MM6108-123456");
+#endif
     return true;
 }
 
 bool get_ruid_chipset_vendor(const sMacAddr &ruid, std::string &chipset_vendor)
 {
+#if !defined(MORSE_MICRO)
     chipset_vendor = "prplmesh";
+#else
+    chipset_vendor = "MorseMicro";
+#endif
     return true;
 }
 
