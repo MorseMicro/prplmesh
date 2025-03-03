@@ -14,6 +14,26 @@
 #include <beerocks/tlvf/beerocks_message.h>
 #include <beerocks/tlvf/beerocks_message_monitor.h>
 
+#if defined(MORSE_MICRO)
+/* This second level threshold after "conf_rx_rssi_notification_threshold_dbm".
+ * is required to steer the clients faster when the rssi continues to drop. Post
+ * this threshold, RSSI delta notification is raised when ever the change in RSSI
+ * is >= 5 (RX_RSSI_NOTIFICATION_DELTA).
+ */
+#define RX_RSSI_NOTIFICATION_THRESHOLD_DBM -70
+
+/* This new threshold is used instead of "conf_rx_rssi_notification_delta_db" to
+ * raise rssi delta notification when the rssi is below
+ * RX_RSSI_NOTIFICATION_THRESHOLD_DBM.
+ */
+#define RX_RSSI_NOTIFICATION_DELTA 5
+
+/* Interval in seconds to raise RSSI delta notification when RX RSSI is below
+ * RX_RSSI_NOTIFICATION_THRESHOLD_DBM irrespective of rssi change/delta.
+ */
+#define RX_RSSI_DELTA_NOTIFCATION_PERIOD_SEC 60
+#endif
+
 using namespace beerocks;
 using namespace net;
 using namespace son;
@@ -211,17 +231,51 @@ void monitor_rssi::process()
         auto &sta_stats = sta_node->get_stats();
 
         if (arp_state == monitor_sta_node::IDLE) {
+            int rx_rssi_notification_delta_db   = conf_rx_rssi_notification_delta_db;
+            int periodic_steering_check_thr_dbm = conf_rx_rssi_notification_threshold_dbm;
+
             //LOG(DEBUG) << ">> monitor_sta_node::IDLE MAC: " << sta_mac;
+#if defined(MORSE_MICRO)
+            /* If the user configured rssi notification threshold is below the
+             * RX_RSSI_NOTIFICATION_THRESHOLD_DBM then user configured value will be used
+             * for periodic steering attempt.
+             */
+            if (periodic_steering_check_thr_dbm > RX_RSSI_NOTIFICATION_THRESHOLD_DBM)
+                periodic_steering_check_thr_dbm = RX_RSSI_NOTIFICATION_THRESHOLD_DBM;
+
+            /* If the user configured rssi notification delta is less than
+             * RX_RSSI_NOTIFICATION_DELTA then user configured value takes precedence.
+             */
+            if (sta_stats.rx_rssi_curr < periodic_steering_check_thr_dbm &&
+                rx_rssi_notification_delta_db > RX_RSSI_NOTIFICATION_DELTA)
+                rx_rssi_notification_delta_db = RX_RSSI_NOTIFICATION_DELTA;
+#endif
+
             if (sta_stats.rx_rssi_curr != sta_stats.rx_rssi_prev) {
                 if (sta_stats.rx_rssi_prev == beerocks::RSSI_INVALID) {
                     sta_stats.rx_rssi_prev = sta_stats.rx_rssi_curr;
                 }
                 int8_t delta_val = abs(sta_stats.rx_rssi_curr - sta_stats.rx_rssi_prev);
-                //LOG(DEBUG) << ">> monitor_sta_node::IDLE, MAC=" << sta_mac << " sta_stats.rx_rssi_curr=" << int(sta_stats.rx_rssi_curr) << " sta_stats.rx_rssi_prev="<<int(sta_stats.rx_rssi_prev) << " delta_val=" << int(delta_val);
+                auto now         = std::chrono::steady_clock::now();
+
+                /* LOG(DEBUG) << ">> monitor_sta_node::IDLE, MAC=" << sta_mac
+                           << " sta_stats.rx_rssi_curr=" << int(sta_stats.rx_rssi_curr)
+                           << " sta_stats.rx_rssi_prev=" << int(sta_stats.rx_rssi_prev)
+                           << " delta_val=" << int(delta_val); */
+
                 // If radio is 2.4 Ghz, send notification even though threshold is not crossed
-                if (delta_val >= conf_rx_rssi_notification_delta_db &&
+#if defined(MORSE_MICRO)
+                if ((delta_val >= rx_rssi_notification_delta_db &&
+                     (freq_type == beerocks::eFreqType::FREQ_24G ||
+                      sta_stats.rx_rssi_curr <= conf_rx_rssi_notification_threshold_dbm)) ||
+                    ((sta_stats.rx_rssi_curr < periodic_steering_check_thr_dbm) &&
+                     (now - sta_node->last_delta_notification_time) >=
+                         std::chrono::seconds(RX_RSSI_DELTA_NOTIFCATION_PERIOD_SEC))) {
+#else
+                if (delta_val >= rx_rssi_notification_delta_db &&
                     (freq_type == beerocks::eFreqType::FREQ_24G ||
                      sta_stats.rx_rssi_curr <= conf_rx_rssi_notification_threshold_dbm)) {
+#endif
                     sta_stats.rx_rssi_prev = sta_stats.rx_rssi_curr;
 
                     auto notification = message_com::create_vs_message<
@@ -246,7 +300,16 @@ void monitor_rssi::process()
 
                     LOG(DEBUG) << "state IDLE, DELTA notification MAC: " << sta_mac
                                << " RX RSSI: " << int(sta_stats.rx_rssi_curr)
+#if defined(MORSE_MICRO)
+                               << " Time since last notification(seconds)="
+                               << std::chrono::duration_cast<std::chrono::seconds>(
+                                      now - sta_node->last_delta_notification_time)
+                                      .count()
+#endif
                                << " delta_val=" << int(delta_val);
+#if defined(MORSE_MICRO)
+                    sta_node->last_delta_notification_time = now;
+#endif
                 }
             }
             if (!conf_disable_initiative_arp) {

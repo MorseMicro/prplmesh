@@ -130,6 +130,10 @@ public:
     bool idle_detected       = false;
     bool enable_idle_monitor = false;
     std::chrono::steady_clock::time_point idle_detected_start_time;
+#if defined(MORSE_MICRO)
+    std::chrono::steady_clock::time_point last_delta_notification_time =
+        std::chrono::steady_clock::now();
+#endif
 
 private:
     int8_t vap_id = beerocks::IFACE_ID_INVALID;

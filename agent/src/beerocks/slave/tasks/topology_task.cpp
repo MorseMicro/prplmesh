@@ -32,7 +32,11 @@ using namespace beerocks;
 using namespace net;
 using namespace son;
 
+#if defined(MORSE_MICRO)
+constexpr uint8_t TOPOLOGY_DISCOVERY_TX_CYCLE_SEC = 30;
+#else
 constexpr uint8_t TOPOLOGY_DISCOVERY_TX_CYCLE_SEC = 60;
+#endif
 
 TopologyTask::TopologyTask(BackhaulManager &btl_ctx, ieee1905_1::CmduMessageTx &cmdu_tx)
     : Task(eTaskType::TOPOLOGY), m_btl_ctx(btl_ctx), m_cmdu_tx(cmdu_tx)
@@ -51,6 +55,10 @@ void TopologyTask::work()
     auto now = std::chrono::steady_clock::now();
 
     // Send topology discovery every 60 seconds according to IEEE_Std_1905.1-2013 specification
+    /* Morse Micro: Send at every 30 seconds as it is observed that packets are lost when the
+     * channel is busy and causing the agents to lose connection.
+     */
+
     if (now - m_periodic_discovery_timestamp >
         std::chrono::seconds(TOPOLOGY_DISCOVERY_TX_CYCLE_SEC)) {
         m_periodic_discovery_timestamp = now;
