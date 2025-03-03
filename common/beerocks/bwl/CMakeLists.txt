@@ -127,7 +127,7 @@ elseif(BWL_TYPE STREQUAL "NL80211")
     list(APPEND BWL_LIBS nl-genl-3)
 
     if(TARGET_PLATFORM STREQUAL "MorseMicro")
-    list(APPEND BWL_LIBS wpa_client)
+    list(APPEND BWL_LIBS wpa_client_s1g)
     endif()
     
     file(GLOB bwl_platform_sources
