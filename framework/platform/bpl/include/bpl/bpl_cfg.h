@@ -972,6 +972,13 @@ bool cfg_set_unsuccessful_assoc_max_reporting_rate(int &max_reporting_rate);
  * @return true on success, otherwise false
  */
 bool bpl_get_lan_interfaces(std::vector<std::string> &lan_iface_list);
+/**
+ * @brief Disables wireless network configuration for the given interface.
+ *
+ * @param [in] iface Interface name.
+  * @return true on success and false otherwise.
+ */
+bool bpl_cfg_teardown_bss(const std::string &iface);
 
 /**
  * @brief Writes wireless network configuration for the given interface.

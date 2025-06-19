@@ -214,6 +214,14 @@ public:
      */
     const std::string &get_last_message() const;
 
+#if defined(MORSE_MICRO)
+    /**
+     * @brief returns hostapd configuration file name
+     * @return const reference to configuration file name string
+     */
+    const std::string& get_config_file_name(){return m_configuration_file;}
+#endif
+
 private:
     /**
      * @brief helper: load configuration based on array of strings

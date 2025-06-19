@@ -1875,6 +1875,24 @@ void ApManager::handle_cmdu(ieee1905_1::CmduMessageRx &cmdu_rx)
         }
 
         if (perform_update && !bss_info_conf_list.empty()) {
+
+#if defined(MORSE_OPENWRT)
+            /* When MBSS support added this would need refactor to
+                                        select the right bss interface name */
+           for (const auto &bss_it : bss_info_conf_list) {
+
+                if(bss_it.teardown) {
+                    if(!beerocks::bpl::bpl_cfg_teardown_bss(m_iface)) {
+                        LOG(ERROR) << "Could not disable VAP " << m_iface << " in UCI";
+                    }
+                    continue;
+                }
+
+                if(!beerocks::bpl::bpl_cfg_set_wifi_credentials(m_iface, bss_it)) {
+                    LOG(ERROR) << "Could not set wireless credentials in UCI";
+                }
+           }
+#endif
             ap_wlan_hal->update_vap_credentials(bss_info_conf_list, backhaul_wps_ssid,
                                                 backhaul_wps_passphrase, bridge_name);
 

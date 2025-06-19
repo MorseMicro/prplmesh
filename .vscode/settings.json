@@ -69,7 +69,7 @@
     },
     "files.insertFinalNewline": true,
     "files.trimFinalNewlines": true,
-    "editor.formatOnSave": true,
+    "editor.formatOnSave": false,
     "C_Cpp.default.defines": [
         "BEEROCKS_LINUX",
         "BEEROCKS_CONF_PATH=\"build/install/config\"",

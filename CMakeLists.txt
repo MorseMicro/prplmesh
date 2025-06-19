@@ -173,6 +173,10 @@ elseif (TARGET_PLATFORM STREQUAL "MorseMicro")
     set(BEEROCKS_CONTROLLER_LOG_SIZE "10000000" CACHE STRING "Max controller log size")
 
     set(BEEROCKS_MONITOR_POLLING_RATE_MSEC 1250)
+
+    if(MORSE_BUILD_ENV STREQUAL "morse-openwrt")
+        add_definitions(-DMORSE_OPENWRT)
+    endif()
 endif()
 
 if (TARGET_PLATFORM_TYPE STREQUAL "turris-omnia")

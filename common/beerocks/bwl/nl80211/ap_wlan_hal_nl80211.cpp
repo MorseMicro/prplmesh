@@ -141,7 +141,11 @@ static prplmesh::hostapd::Configuration load_hostapd_config(const std::string &r
         "/nvram/hostapd6.conf",
         "/nvram/hostapd7.conf"
 #else
+        /* Assuming at max we may have 3 radios */
         "/var/morse/hostapd_s1g_multiap.conf",
+        "/var/run/hostapd-phy0.conf",
+        "/var/run/hostapd-phy1.conf",
+        "/var/run/hostapd-phy2.conf",
 #endif
     };
 
@@ -408,19 +412,22 @@ bool ap_wlan_hal_nl80211::refresh_radio_info()
         return false;
     }
 
-    auto ah_mode     = conf.get_head_value("ieee80211ah");
+    auto ah_mode     = (conf.get_head_value("ieee80211ah") == "1");
     auto country     = conf.get_head_value("country_code");
     auto op_class    = conf.get_head_value("op_class");
     auto s1g_channel = conf.get_head_value("channel");
 
-    if (!country.empty()) {
-        m_radio_info.s1g_country = country;
-        son::wireless_utils::set_s1g_ht_chan_pairs(country);
+    if (ah_mode) {
+        if (!country.empty()) {
+            m_radio_info.s1g_country = country;
+            son::wireless_utils::set_s1g_ht_chan_pairs(country);
+        }
+
+        LOG(DEBUG) << "Detected s1g parameters:-"
+                   << "\nah_mode:" << ah_mode << "\ncounty:" << country << "\nop_class:" << op_class
+                   << "\ns1g_channel:" << s1g_channel << ", " << m_radio_info.frequency_band;
     }
 
-    LOG(DEBUG) << "Detected s1g parameters:-"
-               << "\nah_mode:" << ah_mode << "\ncounty:" << country << "\nop_class:" << op_class
-               << "\ns1g_channel:" << s1g_channel << ", " << m_radio_info.frequency_band;
 #endif
 
     if (m_radio_info.frequency_band == beerocks::eFreqType::FREQ_UNKNOWN) {
@@ -536,11 +543,15 @@ bool ap_wlan_hal_nl80211::refresh_radio_info()
             }
         }
     }
+
 #if defined(MORSE_MICRO)
     // As the now get the channel info from the NL80211 interface we need to set the freq_band to 5G
     // before checking the band. Otherwise it will not be able to get the correct radio info
-    m_radio_info.frequency_band = beerocks::eFreqType::FREQ_5G;
+    if (ah_mode) {
+        m_radio_info.frequency_band = beerocks::eFreqType::FREQ_5G;
+    }
 #endif
+
     if (radio_info.bands.begin()->supported_channels.empty()) {
         LOG(ERROR) << "Supported channels map is empty";
         return false;
@@ -569,34 +580,35 @@ bool ap_wlan_hal_nl80211::refresh_radio_info()
 
         for (auto const &pair : band_info_it->supported_channels) {
             auto &supported_channel_info = pair.second;
-#if defined(MORSE_MICRO)
-            auto &channel_info =
-                m_radio_info.channels_list[son::wireless_utils::convert_ht_chan_to_s1g_chan(
-                                               supported_channel_info.number)
-                                               .s1g_channel];
-#else
-            auto &channel_info = m_radio_info.channels_list[supported_channel_info.number];
-#endif
-            channel_info.tx_power_dbm = supported_channel_info.tx_power;
-            channel_info.dfs_state    = supported_channel_info.is_dfs
-                                            ? supported_channel_info.dfs_state
-                                            : beerocks::eDfsState::DFS_STATE_MAX;
 
 #if defined(MORSE_MICRO)
-            if (ah_mode == "1") {
+            if (ah_mode) {
+                auto &channel_info =
+                    m_radio_info.channels_list[son::wireless_utils::convert_ht_chan_to_s1g_chan(
+                                                   supported_channel_info.number)
+                                                   .s1g_channel];
+
+                channel_info.tx_power_dbm = supported_channel_info.tx_power;
+                channel_info.dfs_state    = supported_channel_info.is_dfs
+                                                ? supported_channel_info.dfs_state
+                                                : beerocks::eDfsState::DFS_STATE_MAX;
+
                 channel_info.bw_info_list[beerocks::utils::convert_bandwidth_to_enum(
                     son::wireless_utils::convert_ht_chan_to_s1g_chan(supported_channel_info.number)
                         .bw)] = 1;
             } else {
+#endif
+                auto &channel_info = m_radio_info.channels_list[supported_channel_info.number];
+                channel_info.tx_power_dbm = supported_channel_info.tx_power;
+                channel_info.dfs_state    = supported_channel_info.is_dfs
+                                                ? supported_channel_info.dfs_state
+                                                : beerocks::eDfsState::DFS_STATE_MAX;
+
                 for (auto bw : supported_channel_info.supported_bandwidths) {
                     // Since bwl nl8011 does not support ranking, set all ranking to highest rank (1).
                     channel_info.bw_info_list[bw] = 1;
                 }
-            }
-#else
-            for (auto bw : supported_channel_info.supported_bandwidths) {
-                // Since bwl nl8011 does not support ranking, set all ranking to highest rank (1).
-                channel_info.bw_info_list[bw] = 1;
+#if defined(MORSE_MICRO)
             }
 #endif
         }
@@ -606,7 +618,7 @@ bool ap_wlan_hal_nl80211::refresh_radio_info()
     }
 
 #if defined(MORSE_MICRO)
-    if (ah_mode == "1") {
+    if (ah_mode) {
         m_radio_info.channel        = beerocks::string_utils::stoi(s1g_channel);
         m_radio_info.s1g_op_class   = beerocks::string_utils::stoi(op_class);
         m_radio_info.frequency_band = beerocks::eFreqType::FREQ_S1G;
@@ -1141,13 +1153,49 @@ bool ap_wlan_hal_nl80211::update_vap_credentials(
             return false;
         }
 
+#if defined(MORSE_MICRO)
+        /* When the S1G hostapd and OpenWrt hostapd (hostapd with OpenWrt patches) are unified,
+            a unified per-radio reload mechanism can be implemented. For now we have to live with
+            UPDATE command for S1G radio.
+         */
+        if(conf.get_head_value("ieee80211ah") == "1") {
+            LOG(DEBUG) << " Using hostapd wpa ctrl interface UPDATE command to reload";
+#endif
         const std::string cmd("UPDATE ");
         if (!wpa_ctrl_send_msg(cmd)) {
             LOG(ERROR) << "Autoconfiguration: \"" << cmd << "\" command to hostapd has failed";
             return false;
         }
-    }
 
+#if defined(MORSE_MICRO)
+        }
+#endif
+
+#if defined(MORSE_OPENWRT)
+        else {
+            /*  The UPDATE command is no longer supported in OpenWrt's hostapd. The new approach
+                for per-radio reload in OpenWrt is via the hostapd RPC config_set which replaces
+                hostapd wpa ctrl iface UPDATE command.
+             */
+            auto get_phy_name = [&conf]() -> std::string {
+                const auto& conf_file = conf.get_config_file_name();
+                size_t pos = conf_file.find("phy");
+                return (pos != std::string::npos) ? conf_file.substr(pos, strlen("phyX")) : "";
+            };
+
+            std::string phy_name = get_phy_name();
+            if(!phy_name.empty()) {
+                std::string command = "ubus call hostapd config_set '{\"phy\": \"" + phy_name +
+                                        "\", \"config\": \"" + conf.get_config_file_name() + "\"}'";
+
+                LOG(DEBUG) << " Using "<< command << " to reload";
+                beerocks::SYSTEM_CALL(command, false);
+            } else {
+                LOG(ERROR) << "Autoconfiguration failed: Unable to get Phy name";
+            }
+        }
+#endif
+    }
     LOG(DEBUG) << "Autoconfiguration: done:\n" << conf;
     return true;
 }

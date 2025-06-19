@@ -56,6 +56,12 @@ static bool bpl_cfg_get_bss_configuration(const std::string &section_name,
             return WSC::eWscAuth::WSC_AUTH_SAE;
 #endif
         }
+#if defined(MORSE_MICRO)
+        else if ("sae-mixed" == encryption) {
+            return WSC::eWscAuth(WSC::eWscAuth::WSC_AUTH_SAE | WSC::eWscAuth::WSC_AUTH_WPA2PSK);
+        }
+#endif
+
         return WSC::eWscAuth::WSC_AUTH_INVALID;
     };
     configuration.authentication_type = get_authentication_type(options["encryption"]);
@@ -69,6 +75,12 @@ static bool bpl_cfg_get_bss_configuration(const std::string &section_name,
                    contains("+aes", encryption) || contains("+ccmp", encryption)) {
             return WSC::eWscEncr::WSC_ENCR_AES;
         }
+#if defined(MORSE_MICRO)
+        else if ("sae-mixed" == encryption) {
+            return WSC::eWscEncr::WSC_ENCR_AES;
+        }
+#endif
+
         return WSC::eWscEncr::WSC_ENCR_INVALID;
     };
     configuration.encryption_type = get_encryption_type(options["encryption"]);
@@ -261,10 +273,29 @@ bool bpl_cfg_get_wireless_settings(std::list<son::wireless_utils::sBssInfoConf> 
         // are 11b, 11g, and 11a.
         std::string hwmode;
         if (!uci_get_option(package_name, "wifi-device", device, "hwmode", hwmode)) {
+
+#if defined(MORSE_MICRO)
+            std::string band;
+            if (uci_get_option(package_name, "wifi-device", device, "band", band)) {
+                if (band == "2g") {
+                    hwmode = "11bgnax";
+                } else if (band == "5g") {
+                    hwmode = "11anacax";
+                } else if (band == "6g") {
+                    hwmode = "11ax";
+                } else {
+                    LOG(DEBUG) << "New band detected : " << band << " in " << device;
+                    continue;
+                }
+            } else {
+                LOG(DEBUG) << "Failed to get 'hwmode' from section " << device;
+                continue;
+            }
+#else
             LOG(DEBUG) << "Failed to get 'hwmode' from section " << device;
             continue;
+#endif
         }
-
         // The mode used by upstream hostapd (11b, 11g, 11n, 11ac, 11ax) is governed by several parameters in
         // the configuration file. However, as explained in the comment below from hostapd.conf, the
         // hw_mode parameter is sufficient to determine the band.
@@ -288,6 +319,10 @@ bool bpl_cfg_get_wireless_settings(std::list<son::wireless_utils::sBssInfoConf> 
             configuration.operating_class.splice(
                 configuration.operating_class.end(),
                 son::wireless_utils::string_to_wsc_oper_class("5g"));
+        } else if (hwmode == "11ax") {
+            configuration.operating_class.splice(
+                configuration.operating_class.end(),
+                son::wireless_utils::string_to_wsc_oper_class("6g"));
 #if defined(MORSE_MICRO)
         } else if (hwmode == "11ah") {
             configuration.operating_class.splice(
@@ -372,6 +407,39 @@ bool bpl_cfg_get_wifi_credentials(const std::string &iface,
     return true;
 }
 
+bool bpl_cfg_teardown_bss(const std::string &iface) {
+    // Find the "wireless.wifi-iface" section in UCI configuration for the given interface
+    const std::string package_name = "wireless";
+    const std::string section_type = "wifi-iface";
+    const std::string option_name  = "ifname";
+    std::string section_name;
+
+    if (!uci_find_section_by_option(package_name, section_type, option_name, iface, section_name)) {
+        LOG(ERROR) << "Failed to find configuration section for interface " << iface;
+        return false;
+    }
+
+    if (section_name.empty()) {
+        LOG(ERROR) << "Configuration for interface " << iface << " not found";
+        return false;
+    }
+
+    // Overwrite UCI configuration with wireless credentials for the given interface
+    OptionsUnorderedMap options;
+    options["disabled"] = "1";
+
+    // Write UCI options in the "wireless.wifi-iface" section for the given interface.
+    if (!uci_set_section(package_name, section_type, section_name, options, true)) {
+        LOG(ERROR) << "Failed to set wireless configuration for interface " << iface
+                   << " at section " << section_name;
+        return false;
+    }
+
+    return true;
+}
+
+#define WPA3_TRASITION (WSC::eWscAuth::WSC_AUTH_WPA2PSK | WSC::eWscAuth::WSC_AUTH_SAE)
+
 bool bpl_cfg_set_wifi_credentials(const std::string &iface,
                                   const son::wireless_utils::sBssInfoConf &configuration)
 {
@@ -392,6 +460,7 @@ bool bpl_cfg_set_wifi_credentials(const std::string &iface,
 
     // Overwrite UCI configuration with wireless credentials for the given interface
     OptionsUnorderedMap options;
+    options["disabled"] = "0";
     options["ssid"] = configuration.ssid;
 
     auto get_encryption = [](WSC::eWscAuth authentication_type, WSC::eWscEncr encryption_type) {
@@ -406,6 +475,11 @@ bool bpl_cfg_set_wifi_credentials(const std::string &iface,
         } else if (authentication_type == WSC::eWscAuth::WSC_AUTH_SAE) {
             encryption = "sae";
         }
+#if defined(MORSE_OPENWRT)
+        else if (authentication_type == WSC::eWscAuth(WPA3_TRASITION)) {
+            encryption = "sae-mixed";
+        }
+#endif
         return encryption;
     };
     options["encryption"] =
@@ -413,12 +487,30 @@ bool bpl_cfg_set_wifi_credentials(const std::string &iface,
 
     options["key"] = configuration.network_key;
 
+    auto get_multiap = [](bool fh, bool bh) {
+        if (fh && bh)   return std::to_string(beerocks::BSS_TYPE_BACK_FRONTHAUL);
+        if (fh)         return std::to_string(beerocks::BSS_TYPE_FRONTHAUL);
+        if (bh)         return std::to_string(beerocks::BSS_TYPE_BACKHAUL);
+
+        LOG(WARNING) << "Multi-AP BSS type unknown. Defaulting to FRONTHAUL.";
+        return std::to_string(beerocks::BSS_TYPE_FRONTHAUL);
+    };
+
+    options["multi_ap"] = get_multiap(configuration.fronthaul, configuration.backhaul);
+
     // Write UCI options in the "wireless.wifi-iface" section for the given interface.
     if (!uci_set_section(package_name, section_type, section_name, options, true)) {
         LOG(ERROR) << "Failed to set wireless configuration for interface " << iface
                    << " at section " << section_name;
         return false;
     }
+
+    LOG(DEBUG) << "Autoconfiguration save successfull to UCI for " << iface;
+    LOG(DEBUG) << "     SSID         : " << configuration.ssid;
+    LOG(DEBUG) << "     Key          : " << configuration.network_key;
+    LOG(DEBUG) << "     Auth         : " << eWscAuth_str(configuration.authentication_type);
+    LOG(DEBUG) << "     Encr         : " << options["encryption"];
+    LOG(DEBUG) << "     Multiap      : " << options["multi_ap"];
 
     return true;
 }
@@ -441,24 +533,95 @@ bool bpl_cfg_get_mandatory_interfaces(std::string &mandatory_interfaces)
     return true;
 }
 
+static int get_radio_name(const std::unordered_map<std::string, std::string> &prplmesh_ifaces,
+                          const std::string &iface, std::string &radio_name)
+{
+
+    const auto iter = std::find_if(prplmesh_ifaces.begin(), prplmesh_ifaces.end(),
+                                    [&iface](std::pair<std::string, std::string> const &it) {
+                                        return it.second == iface; });
+    if (iter == prplmesh_ifaces.end()) {
+        LOG(ERROR) << " Interface " << iface << " not found in iface map";
+        return RETURN_ERR;
+    }
+
+    radio_name = iter->first;
+    return RETURN_OK;
+}
+
+int bpl_cfg_get_iface_band(const std::string &iface, std::string &band)
+{
+
+    std::unordered_map<std::string, std::string> hostapd_ifaces;
+    std::string radio_name;
+
+    if (cfg_get_prplmesh_hostapd_ifaces(hostapd_ifaces) == RETURN_ERR) {
+        LOG(DEBUG) << "cfg_get_prplmesh_hostapd_ifaces: failed to get avaliable interfaces";
+        return RETURN_ERR;
+    }
+
+    if (get_radio_name(hostapd_ifaces, iface, radio_name) != RETURN_OK) {
+
+        std::unordered_map<std::string, std::string> sta_ifaces;
+        if (cfg_get_prplmesh_sta_ifaces(sta_ifaces) == RETURN_ERR) {
+            LOG(DEBUG) << "cfg_get_prplmesh_sta_ifaces: failed to get avaliable interfaces";
+            return RETURN_ERR;
+        }
+
+        if (RETURN_OK != get_radio_name(sta_ifaces, iface, radio_name)) {
+            LOG(DEBUG) << "Unable to find a radio name of iface : " << iface;
+            return RETURN_ERR;
+        }
+    }
+
+    /* Get the wireless.radiox.hwmode first to see if we are on s1g band */
+    std::string hwmode;
+    if (uci_get_option("wireless", "wifi-device", radio_name, "hwmode", hwmode)) {
+        if (hwmode == "11ah") {
+            band = "s1g";
+            return RETURN_OK;
+        }
+    }
+
+    /* Fall back to wireless.radiox.band to get the band */
+    if (!uci_get_option("wireless", "wifi-device", radio_name, "band", band)) {
+        LOG(ERROR) << "uci get wireless." << radio_name << ".band failed";
+        return RETURN_ERR;
+    }
+
+    return RETURN_OK;
+}
+
 bool bpl_cfg_get_wpa_supplicant_ctrl_path(const std::string &iface, std::string &wpa_ctrl_path)
 {
-#if !defined(MORSE_MICRO)
-    const char *path{"/var/run/wpa_supplicant/"};
-#else
-    const char *path{"/var/run/wpa_supplicant_s1g/"};
+    const char *path = "/var/run/wpa_supplicant/";
+
+#if defined(MORSE_MICRO)
+    std::string band;
+    if (RETURN_OK == bpl_cfg_get_iface_band(iface, band)) {
+        if (band == "s1g") {
+            path = "/var/run/wpa_supplicant_s1g/";
+        }
+    }
 #endif
+
     wpa_ctrl_path = path + iface;
     return true;
 }
 
 bool bpl_cfg_get_hostapd_ctrl_path(const std::string &iface, std::string &hostapd_ctrl_path)
 {
-#if !defined(MORSE_MICRO)
-    const char *path{"/var/run/hostapd/"};
-#else
-    const char *path{"/var/run/hostapd_s1g/"};
+    const char *path = "/var/run/hostapd/";
+
+#if defined(MORSE_MICRO)
+    std::string band;
+    if (RETURN_OK == bpl_cfg_get_iface_band(iface, band)) {
+        if (band == "s1g") {
+            path = "/var/run/hostapd_s1g/";
+        }
+    }
 #endif
+
     hostapd_ctrl_path = path + iface;
     return true;
 }
