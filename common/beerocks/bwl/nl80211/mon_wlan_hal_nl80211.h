@@ -11,6 +11,9 @@
 
 #include "base_wlan_hal_nl80211.h"
 #include <bwl/mon_wlan_hal.h>
+#if defined(MORSE_MICRO)
+#include <bcl/network/network_utils.h>
+#endif
 
 namespace bwl {
 namespace nl80211 {
@@ -90,6 +93,12 @@ protected:
     // Private data-members:
 private:
     std::shared_ptr<char> m_temp_wav_value;
+#if defined(MORSE_MICRO)
+    std::unordered_set<sMacAddr> m_handled_clients;
+    sMacAddr m_prev_client_mac                        = beerocks::net::network_utils::ZERO_MAC;
+    bool m_queried_first                              = false;
+    bool connected_clients_events_generation_complete = false;
+#endif
 };
 
 } // namespace nl80211

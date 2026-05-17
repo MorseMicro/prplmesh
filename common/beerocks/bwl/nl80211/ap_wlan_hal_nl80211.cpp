@@ -23,6 +23,7 @@
 #include <netlink/msg.h>
 #include <netlink/netlink.h>
 #include <type_traits>
+#include <fstream>
 
 //////////////////////////////////////////////////////////////////////////////
 ////////////////////////// Local Module Definitions //////////////////////////
@@ -406,6 +407,22 @@ bool ap_wlan_hal_nl80211::refresh_radio_info()
     }
 
 #if defined(MORSE_MICRO)
+    std::string chan_scheme;
+    {
+        constexpr char channelization_scheme_path[] =
+            "/sys/module/dot11ah/parameters/channelization_scheme";
+        std::ifstream channelization_scheme_file(channelization_scheme_path);
+        if (channelization_scheme_file.is_open()) {
+            std::getline(channelization_scheme_file, chan_scheme);
+            beerocks::string_utils::trim(chan_scheme);
+        } else {
+            LOG(WARNING) << "Failed to open " << channelization_scheme_path
+                         << " to read S1G channelization scheme";
+        }
+    }
+    int channelization_scheme = chan_scheme.empty() ? CHANNELIZATION_SCHEME_DEFAULT:
+                            beerocks::string_utils::stoi(chan_scheme);
+
     prplmesh::hostapd::Configuration conf = load_hostapd_config(m_radio_info.iface_name);
     if (!conf) {
         LOG(ERROR) << "Unable to load hostapd config for interface " << m_radio_info.iface_name;
@@ -420,7 +437,7 @@ bool ap_wlan_hal_nl80211::refresh_radio_info()
     if (ah_mode) {
         if (!country.empty()) {
             m_radio_info.s1g_country = country;
-            son::wireless_utils::set_s1g_ht_chan_pairs(country);
+            son::wireless_utils::set_s1g_ht_chan_pairs(country, channelization_scheme);
         }
 
         LOG(DEBUG) << "Detected s1g parameters:-"
@@ -620,8 +637,8 @@ bool ap_wlan_hal_nl80211::refresh_radio_info()
 #if defined(MORSE_MICRO)
     if (ah_mode) {
         m_radio_info.channel        = beerocks::string_utils::stoi(s1g_channel);
-        m_radio_info.s1g_op_class   = beerocks::string_utils::stoi(op_class);
         m_radio_info.frequency_band = beerocks::eFreqType::FREQ_S1G;
+        m_radio_info.s1g_op_class   = beerocks::string_utils::stoi(op_class);
         LOG(DEBUG) << "Refresh Radio Info parameters:-"
                    << "\ncounty:" << country << "\nop_class:" << m_radio_info.s1g_op_class
                    << "\ns1g_channel:" << m_radio_info.channel << ", "
@@ -1152,50 +1169,18 @@ bool ap_wlan_hal_nl80211::update_vap_credentials(
             LOG(ERROR) << "Autoconfiguration: cannot save hostapd config!";
             return false;
         }
-
-#if defined(MORSE_MICRO)
-        /* When the S1G hostapd and OpenWrt hostapd (hostapd with OpenWrt patches) are unified,
-            a unified per-radio reload mechanism can be implemented. For now we have to live with
-            UPDATE command for S1G radio.
-         */
-        if(conf.get_head_value("ieee80211ah") == "1") {
-            LOG(DEBUG) << " Using hostapd wpa ctrl interface UPDATE command to reload";
-#endif
+#if defined(MORSE_OPENWRT)
+        std::string command = "ubus call prpl_mgr reload '{\"radio_config\": {\"" + m_radio_info.iface_name + "\": {}}}'";
+        beerocks::SYSTEM_CALL(command, false);
+#else
         const std::string cmd("UPDATE ");
         if (!wpa_ctrl_send_msg(cmd)) {
             LOG(ERROR) << "Autoconfiguration: \"" << cmd << "\" command to hostapd has failed";
             return false;
         }
-
-#if defined(MORSE_MICRO)
-        }
-#endif
-
-#if defined(MORSE_OPENWRT)
-        else {
-            /*  The UPDATE command is no longer supported in OpenWrt's hostapd. The new approach
-                for per-radio reload in OpenWrt is via the hostapd RPC config_set which replaces
-                hostapd wpa ctrl iface UPDATE command.
-             */
-            auto get_phy_name = [&conf]() -> std::string {
-                const auto& conf_file = conf.get_config_file_name();
-                size_t pos = conf_file.find("phy");
-                return (pos != std::string::npos) ? conf_file.substr(pos, strlen("phyX")) : "";
-            };
-
-            std::string phy_name = get_phy_name();
-            if(!phy_name.empty()) {
-                std::string command = "ubus call hostapd config_set '{\"phy\": \"" + phy_name +
-                                        "\", \"config\": \"" + conf.get_config_file_name() + "\"}'";
-
-                LOG(DEBUG) << " Using "<< command << " to reload";
-                beerocks::SYSTEM_CALL(command, false);
-            } else {
-                LOG(ERROR) << "Autoconfiguration failed: Unable to get Phy name";
-            }
-        }
 #endif
     }
+
     LOG(DEBUG) << "Autoconfiguration: done:\n" << conf;
     return true;
 }

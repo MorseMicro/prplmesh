@@ -10,8 +10,10 @@
 
 #include <bcl/beerocks_utils.h>
 #include <bcl/network/network_utils.h>
+#include <bcl/son/son_wireless_utils.h>
 
 #include <easylogging++.h>
+#include <fstream>
 
 namespace bwl {
 namespace nl80211 {
@@ -60,6 +62,9 @@ sta_wlan_hal_nl80211::sta_wlan_hal_nl80211(const std::string &iface_name, hal_ev
     : base_wlan_hal(bwl::HALType::Station, iface_name, IfaceType::Intel, callback, hal_conf),
       base_wlan_hal_nl80211(bwl::HALType::Station, iface_name, callback, BUFFER_SIZE, hal_conf)
 {
+#if defined(MORSE_MICRO)
+    update_s1g_channelization_scheme();
+#endif
     m_filtered_events.insert({});
 }
 
@@ -511,6 +516,45 @@ void sta_wlan_hal_nl80211::update_status(const ConnectionStatus &connection_stat
                << ", active_bssid= " << m_active_bssid << ", active_channel= " << m_active_channel
                << ", active_ssid= " << m_active_ssid;
 }
+
+#if defined(MORSE_MICRO)
+void sta_wlan_hal_nl80211::update_s1g_channelization_scheme()
+{
+    // Read channelization scheme
+    std::string chan_scheme;
+    constexpr char channelization_scheme_path[] =
+        "/sys/module/dot11ah/parameters/channelization_scheme";
+    std::ifstream channelization_scheme_file(channelization_scheme_path);
+    if (channelization_scheme_file.is_open()) {
+        std::getline(channelization_scheme_file, chan_scheme);
+        beerocks::string_utils::trim(chan_scheme);
+    } else {
+        LOG(WARNING) << "Failed to open " << channelization_scheme_path
+                     << " to read S1G channelization scheme";
+    }
+    int channelization_scheme = chan_scheme.empty()
+                                    ? CHANNELIZATION_SCHEME_DEFAULT
+                                    : beerocks::string_utils::stoi(chan_scheme);
+
+    // Read country from morse module parameters
+    constexpr char country_path[] = "/sys/module/morse/parameters/country";
+    std::ifstream country_file(country_path);
+    if (country_file.is_open()) {
+        std::string country;
+        std::getline(country_file, country);
+        beerocks::string_utils::trim(country);
+        if (!country.empty()) {
+            m_radio_info.s1g_country = country;
+        }
+    } else {
+        LOG(WARNING) << "Failed to open " << country_path << " to read country";
+    }
+
+    son::wireless_utils::set_s1g_ht_chan_pairs(m_radio_info.s1g_country, channelization_scheme);
+    LOG(DEBUG) << "S1G channelization scheme set to " << channelization_scheme
+               << " for country '" << m_radio_info.s1g_country << "'";
+}
+#endif
 
 } // namespace nl80211
 

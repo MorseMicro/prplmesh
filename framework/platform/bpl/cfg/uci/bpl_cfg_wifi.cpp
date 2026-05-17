@@ -438,7 +438,7 @@ bool bpl_cfg_teardown_bss(const std::string &iface) {
     return true;
 }
 
-#define WPA3_TRASITION (WSC::eWscAuth::WSC_AUTH_WPA2PSK | WSC::eWscAuth::WSC_AUTH_SAE)
+#define WPA3_TRANSITION (WSC::eWscAuth::WSC_AUTH_WPA2PSK | WSC::eWscAuth::WSC_AUTH_SAE)
 
 bool bpl_cfg_set_wifi_credentials(const std::string &iface,
                                   const son::wireless_utils::sBssInfoConf &configuration)
@@ -447,6 +447,8 @@ bool bpl_cfg_set_wifi_credentials(const std::string &iface,
     const std::string package_name = "wireless";
     const std::string section_type = "wifi-iface";
     const std::string option_name  = "ifname";
+    const std::string option_disabled = "disabled";
+
     std::string section_name;
     if (!uci_find_section_by_option(package_name, section_type, option_name, iface, section_name)) {
         LOG(ERROR) << "Failed to find configuration section for interface " << iface;
@@ -458,9 +460,10 @@ bool bpl_cfg_set_wifi_credentials(const std::string &iface,
         return false;
     }
 
+    uci_delete_option(package_name, section_type, section_name, option_disabled, false);
+
     // Overwrite UCI configuration with wireless credentials for the given interface
     OptionsUnorderedMap options;
-    options["disabled"] = "0";
     options["ssid"] = configuration.ssid;
 
     auto get_encryption = [](WSC::eWscAuth authentication_type, WSC::eWscEncr encryption_type) {
@@ -476,7 +479,7 @@ bool bpl_cfg_set_wifi_credentials(const std::string &iface,
             encryption = "sae";
         }
 #if defined(MORSE_OPENWRT)
-        else if (authentication_type == WSC::eWscAuth(WPA3_TRASITION)) {
+        else if (authentication_type == WSC::eWscAuth(WPA3_TRANSITION)) {
             encryption = "sae-mixed";
         }
 #endif

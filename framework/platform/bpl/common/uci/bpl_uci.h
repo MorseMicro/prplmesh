@@ -123,6 +123,20 @@ bool uci_get_section_type(const std::string &package_name, const std::string &se
 bool uci_get_option(const std::string &package_name, const std::string &section_type,
                     const std::string &section_name, const std::string &option_name,
                     std::string &option_value);
+/**
+ * Delete a single option from a named section.
+ *
+ * @param[in] package_name name of the requested configuration file.
+ * @param[in] section_type type of the requested section.
+ * @param[in] section_name name of the requested section.
+ * @param[in] option_name name of the requested option.
+ * @param[in] commit_changes to show immediate intention to commit.
+ *
+ * @return true on success, false on error (including when the section/option does not exist)
+ */
+bool uci_delete_option(const std::string &package_name, const std::string &section_type,
+                       const std::string &section_name, const std::string &option_name,
+                       bool commit_changes);
 
 /**
  * @brief Delete existing section.

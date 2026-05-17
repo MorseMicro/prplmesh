@@ -76,6 +76,10 @@ protected:
     }
 
 private:
+#if defined(MORSE_MICRO)
+    void update_s1g_channelization_scheme();
+#endif
+
     /**
      * @brief Connection status information.
      *

@@ -64,6 +64,15 @@
 #define RESTRICTED_2G_OVERLAPP_SIZE 5
 
 #if defined(MORSE_MICRO)
+#define CHANNELIZATION_SCHEME_NONE 0
+/** Channelization per IEEE Std 802.11-2020 */
+#define CHANNELIZATION_SCHEME_IEEE80211_2020 1
+/** Channelization per IEEE Std 802.11-2024 */
+#define CHANNELIZATION_SCHEME_IEEE80211_2024 2
+/** Channelization per IEEE Std 802.11-REVmf */
+#define CHANNELIZATION_SCHEME_IEEE80211_REVMF 3
+#define CHANNELIZATION_SCHEME_DEFAULT CHANNELIZATION_SCHEME_IEEE80211_REVMF
+
 struct s1g_ht_chan_pair {
     int s1g_channel;
     int ht_channel;
@@ -124,7 +133,146 @@ static const struct s1g_ht_chan_pair s1g_ht_chan_pairs_default[] = {
 	{49, 173, 1},
 	{50, 175, 2},
 	{51, 177, 1},
+	{52, -1, -1},	/* unmapped */
+	{53, -1, -1},	/* unmapped */
+	{54, -1, -1},	/* unmapped */
+	{55, -1, -1},	/* unmapped */
+	{56, -1, -1},	/* unmapped */
+	{57, -1, -1},	/* unmapped */
+	{58, -1, -1},	/* unmapped */
+	{59, -1, -1},	/* unmapped */
 };
+
+/* The proposed channels 51, 55 & 59 are not part of standard yet */
+static const struct s1g_ht_chan_pair s1g_ht_chan_pairs_au[] = {
+	/* nulls for alignment */
+	{-1, -1, -1},
+	{1, -1, -1},
+	{2, -1, -1},
+	{3, -1, -1},
+	{4, -1, -1},	/* unmapped */
+	{5, -1, -1},
+	{6, -1, -1},
+	{7, -1, -1},
+	{8, -1, -1},
+	{9, -1, -1},
+	{10, -1, -1},
+	{11, -1, -1},
+	{12, -1, -1},
+	{13, -1, -1},
+	{14, -1, -1},
+	{15, -1, -1},
+	{16, -1, -1},
+	{17, -1, -1},
+	{18, -1, -1},
+	{19, -1, -1},
+	{20, -1, -1},	/* unmapped */
+	{21, -1, -1},
+	{22, -1, -1},
+	{23, -1, -1},
+	{24, -1, -1},
+	{25, -1, -1},
+	{26, -1, -1},
+	{27, -1, -1},  /* unmapped */
+	{28, 36, 1},
+	{29, 38, 2},
+	{30, 40, 1},
+	{31, 42, 4},
+	{32, 44, 1},
+	{33, 46, 2},
+	{34, 48, 1},
+	{35, 50, 8},
+	{36, 52, 1},
+	{37, 54, 2},
+	{38, 56, 1},
+	{39, 58, 4},
+	{40, 60, 1},
+	{41, 62, 2},
+	{42, 64, 1},
+	{43, 114, 8},
+	{44, 116, 1},
+	{45, 118, 2},
+	{46, 120, 1},
+	{47, 122, 4},
+	{48, 124, 1},
+	{49, 126, 2},
+	{50, 128, 1},
+	{51, 155, 4},
+	{52, -1, -1}, /* unmapped */
+	{53, -1, -1}, /* unmapped */
+	{54, -1, -1}, /* unmapped */
+	{55, 163, 8},
+	{56, -1, -1}, /* unmapped */
+	{57, -1, -1}, /* unmapped */
+	{58, -1, -1}, /* unmapped */
+	{59, 171, 4},
+};
+
+/** Implements the AU specific channelization scheme per IEEE Std 802.11-2024 */
+static const struct s1g_ht_chan_pair s1g_ht_chan_pairs_au_2024[] = {
+    /* nulls for alignment */
+    {-1, -1, -1},
+    {1, -1, -1},
+    {2, -1, -1},
+    {3, -1, -1},
+    {4, -1, -1},    /* unmapped */
+    {5, -1, -1},
+    {6, -1, -1},
+    {7, -1, -1},
+    {8, -1, -1},
+    {9, -1, -1},
+    {10, -1, -1},
+    {11, -1, -1},
+    {12, -1, -1},
+    {13, -1, -1},
+    {14, -1, -1},
+    {15, -1, -1},
+    {16, -1, -1},
+    {17, -1, -1},
+    {18, -1, -1},
+    {19, -1, -1},
+    {20, -1, -1},   /* unmapped */
+    {21, -1, -1},
+    {22, -1, -1},
+    {23, -1, -1},
+    {24, -1, -1},
+    {25, -1, -1},
+    {26, -1, -1},
+    {27, -1, -1},  /* unmapped */
+    {28, 36, 1},
+    {29, 38, 2},
+    {30, 40, 1},
+    {31, 42, 4},
+    {32, 44, 1},
+    {33, 46, 2},
+    {34, 48, 1},
+    {35, 50, 8},
+    {36, 52, 1},
+    {37, 54, 2},
+    {38, 56, 1},
+    {39, 58, 4},
+    {40, 60, 1},
+    {41, 62, 2},
+    {42, 64, 1},
+    {43, 114, 8},
+    {44, 116, 1},
+    {45, 118, 2},
+    {46, 120, 1},
+    {47, 122, 4},
+    {48, 124, 1},
+    {49, 126, 2},
+    {50, 128, 1},
+    {51, -1, -1}, /* unmapped */
+    {52, -1, -1}, /* unmapped */
+    {53, -1, -1}, /* unmapped */
+    {54, -1, -1}, /* unmapped */
+    {55, -1, -1}, /* unmapped */
+    {56, -1, -1}, /* unmapped */
+    {57, -1, -1}, /* unmapped */
+    {58, -1, -1}, /* unmapped */
+    {59, -1, -1}, /* unmapped */
+};
+
 
 static const struct s1g_ht_chan_pair s1g_ht_chan_pairs_jp[] = {
 	/* nulls for alignment */
@@ -180,6 +328,15 @@ static const struct s1g_ht_chan_pair s1g_ht_chan_pairs_jp[] = {
 	{49, -1, -1},	/* unmapped */
 	{50, -1, -1},	/* unmapped */
 	{51, -1, -1},	/* unmapped */
+	{52, -1, -1},	/* unmapped */
+	{53, -1, -1},	/* unmapped */
+	{54, -1, -1},	/* unmapped */
+	{55, -1, -1},	/* unmapped */
+	{56, -1, -1},	/* unmapped */
+	{57, -1, -1},	/* unmapped */
+	{58, -1, -1},	/* unmapped */
+	{59, -1, -1},	/* unmapped */
+
 };
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
@@ -312,7 +469,7 @@ public:
 #if defined(MORSE_MICRO)
     static int s1g_chan_to_freq(int channel);
     static struct s1g_ht_chan_pair convert_ht_chan_to_s1g_chan(int ht_chan);
-    static void set_s1g_ht_chan_pairs(std::string &cc);
+    static void set_s1g_ht_chan_pairs(std::string &cc, int op_class);
 #endif
     /**
      * @brief Get the center frequency of a channel.

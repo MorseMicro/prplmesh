@@ -400,6 +400,73 @@ bool uci_get_option(const std::string &package_name, const std::string &section_
     return true;
 }
 
+/**
+ * Delete a single option from a named section.
+ *
+ * @param package_name   UCI package (e.g. "wireless")
+ * @param section_type   Expected section type (e.g. "wifi-iface"); used to validate existence
+ * @param section_name   Named section within the package
+ * @param option_name    Option key to delete
+ * @param commit_changes If true, commits after deletion; otherwise leaves in delta
+ *
+ * @return true on success, false on error (including when the section/option does not exist)
+ */
+bool uci_delete_option(const std::string &package_name, const std::string &section_type,
+                       const std::string &section_name, const std::string &option_name,
+                       bool commit_changes)
+{
+    // package_name.(section_type)section_name.option_name
+    LOG(TRACE) << "uci_delete_option() " << package_name << ".(" << section_type << ")"
+               << section_name << "." << option_name;
+
+    // Verify requested section exists (and matches expected type)
+    if (!uci_section_exists(package_name, section_type, section_name)) {
+        LOG(ERROR) << "section " << section_name << " of type " << section_type
+                   << " was not found!";
+        return false;
+    }
+
+    auto ctx = alloc_context();
+    if (!ctx) {
+        return false;
+    }
+
+    char opt_path[MAX_UCI_BUF_LEN] = {0};
+    // Build path to the option we wish to delete: "<package>.<section>.<option>"
+    if (snprintf(opt_path, MAX_UCI_BUF_LEN, option_path, package_name.c_str(),
+                 section_name.c_str(), option_name.c_str()) <= 0) {
+        LOG(ERROR) << "Failed to compose path";
+        return false;
+    }
+
+    uci_ptr opt_ptr;
+    // Lookup & validate option existence
+    if (uci_lookup_ptr(ctx.get(), &opt_ptr, opt_path, true) != UCI_OK || !opt_ptr.o) {
+        LOG(INFO) << "UCI option does not exist: " << opt_path << std::endl
+                   << uci_get_error(ctx.get());
+        return true;
+    }
+
+    // Delete the option
+    if (uci_delete(ctx.get(), &opt_ptr) != UCI_OK) {
+        LOG(ERROR) << "UCI failed to delete option at path: " << opt_path << std::endl
+                   << uci_get_error(ctx.get());
+        return false;
+    }
+
+    // Save delta (does not persist to file yet)
+    if (uci_save(ctx.get(), opt_ptr.p) != UCI_OK) {
+        LOG(ERROR) << "Failed to save changes!" << std::endl << uci_get_error(ctx.get());
+        return false;
+    }
+
+    if (commit_changes) {
+        return uci_commit_changes(package_name);
+    }
+
+    return true;
+}
+
 bool uci_delete_section(const std::string &package_name, const std::string &section_type,
                         const std::string &section_name, bool commit_changes)
 {

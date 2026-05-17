@@ -26,7 +26,7 @@ using namespace son;
 #define OPERATING_CLASS_6GHZ_FIRST 131
 #define OPERATING_CLASS_6GHZ_LAST 136
 #if defined(MORSE_MICRO)
-#define OPERATING_CLASS_S1G_FIRST 64
+#define OPERATING_CLASS_S1G_FIRST 48
 #define OPERATING_CLASS_S1G_LAST 77
 #endif
 
@@ -73,6 +73,14 @@ const std::map<uint8_t, wireless_utils::sOperatingClass> wireless_utils::operati
     {136,       {{2},                                                          beerocks::BANDWIDTH_20}},
 #if defined(MORSE_MICRO)
 //  S1G op class
+    // New proposal channels that are not part of standard yet
+    {48,         {{51, 59},                                                    beerocks::BANDWIDTH_4}},
+    {49,         {{55},                                                        beerocks::BANDWIDTH_8}},
+    //AU 2024 channels
+    {50,         {{28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50},            beerocks::BANDWIDTH_1}},
+    {51,         {{29, 33, 37, 41, 45, 49},                                    beerocks::BANDWIDTH_2}},
+    {52,         {{31, 39, 47},                                                beerocks::BANDWIDTH_4}},
+    {53,         {{35, 43},                                                    beerocks::BANDWIDTH_8}},
     // JP
     {64,         {{2, 4, 6, 8},                                                beerocks::BANDWIDTH_2}},
     {65,         {{36, 38},                                                    beerocks::BANDWIDTH_4}},
@@ -587,7 +595,7 @@ wireless_utils::get_operating_classes_of_freq_type(beerocks::eFreqType freq_type
         break;
 #if defined(MORSE_MICRO)
     case beerocks::eFreqType::FREQ_S1G:
-        first_iterator = operating_classes_list.find(64);
+        first_iterator = operating_classes_list.find(48);
         last_iterator  = operating_classes_list.find(77);
         break;
 #endif
@@ -988,11 +996,18 @@ int wireless_utils::freq_to_channel(int center_freq)
 }
 
 #if defined(MORSE_MICRO)
-void wireless_utils::set_s1g_ht_chan_pairs(std::string &cc)
+void wireless_utils::set_s1g_ht_chan_pairs(std::string &cc, int channelization_scheme)
 {
     if (!cc.empty() && cc.compare(0, COUNTRY_CODE_LEN, "JP") == 0) {
         s1g_ht_chan_pairs = s1g_ht_chan_pairs_jp;
         LOG(DEBUG) << "setting s1g ht pair to s1g_ht_chan_pairs_jp";
+    } else  if (!cc.empty() && cc.compare(0, COUNTRY_CODE_LEN, "AU") == 0 &&
+                channelization_scheme > CHANNELIZATION_SCHEME_IEEE80211_2020) {
+        s1g_ht_chan_pairs = channelization_scheme == CHANNELIZATION_SCHEME_IEEE80211_REVMF ?
+                s1g_ht_chan_pairs_au : s1g_ht_chan_pairs_au_2024;
+        LOG(DEBUG) << "setting s1g ht pair to s1g_ht_chan_pairs_"
+                   << (channelization_scheme == CHANNELIZATION_SCHEME_IEEE80211_REVMF ? "au"
+                                                                                      : "au_2024");
     } else {
         s1g_ht_chan_pairs = s1g_ht_chan_pairs_default;
         LOG(DEBUG) << "setting s1g ht pair to s1g_ht_chan_pairs_default";
@@ -1147,7 +1162,7 @@ beerocks::eFreqType wireless_utils::which_freq_op_cls(const uint8_t op_cls)
 beerocks::eFreqType wireless_utils::which_freq(uint32_t chn)
 {
 #if defined(MORSE_MICRO)
-    if ((chn >= 1) && (chn <= 51)) {
+    if ((chn >= 1) && (chn <= 59)) {
         return beerocks::eFreqType::FREQ_S1G;
     }
     return beerocks::eFreqType::FREQ_UNKNOWN;
@@ -1856,7 +1871,7 @@ std::list<uint8_t> wireless_utils::string_to_wsc_oper_class(const std::string &o
                                     123, 124, 125, 126, 127, 128, 129, 130};
     std::list<uint8_t> radio_6g  = {131, 132, 133, 134, 135, 136};
 #if defined(MORSE_MICRO)
-    std::list<uint8_t> radio_s1g = {64, 65, 66, 67, 68, 69, 70, 71, 73, 74, 75, 76, 77};
+    std::list<uint8_t> radio_s1g = {48, 49, 50, 51, 52, 53, 64, 65, 66, 67, 68, 69, 70, 71, 73, 74, 75, 76, 77};
 #endif
     if (operating_class == "24g") {
         return radio_24g;

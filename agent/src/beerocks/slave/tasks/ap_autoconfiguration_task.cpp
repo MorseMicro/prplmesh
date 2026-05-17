@@ -251,6 +251,19 @@ void ApAutoConfigurationTask::handle_event(uint8_t event_enum_value, const void 
 
             LOG(DEBUG) << "starting discovery sequence on radio_iface=" << radio->front.iface_name;
             FSM_MOVE_STATE(radio->front.iface_name, eState::CONTROLLER_DISCOVERY);
+
+            /*
+            * Reset discovery status to handle a rare race condition:
+            * - If START_AP_AUTOCONFIGURATION is received again during CONTROLLER_DISCOVERY
+            *   (e.g. due to backhaul reconnect), the FSM re-enters discovery with:
+            *     msg_sent = true, completed = false
+            * - This causes the fsm to get stuck and skip resending the auto config search.
+            */
+            for (auto &discovery_status : m_discovery_status) {
+                if (!discovery_status.second.completed)
+                    discovery_status.second.msg_sent = false;
+            }
+
             m_task_is_active = true;
         }
 
